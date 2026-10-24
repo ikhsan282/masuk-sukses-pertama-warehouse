@@ -1,34 +1,59 @@
 /* Maura Warehouse – main stylesheet */
 :root {
-  --sidebar-width: 240px;
-  --sidebar-collapsed: 60px;
-  --sidebar-bg: #1a1d23;
-  --sidebar-hover: rgba(255,255,255,.07);
-  --sidebar-active: rgba(13,110,253,.25);
-  --sidebar-border: rgba(255,255,255,.08);
-  --page-bg: #f8f9fa;
+  --sidebar-width: 260px;
+  --sidebar-collapsed: 68px;
+  --sidebar-bg: #1a3c2e;
+  --sidebar-hover: #2d6a4f;
+  --sidebar-active: #198754;
+  --sidebar-border: rgba(255,255,255,.1);
+  --page-bg: #f5f7fa;
   --card-bg: #ffffff;
+  --surface-muted: #f8f9fa;
   --text-primary: #212529;
   --text-muted: #6c757d;
-  --border-color: #dee2e6;
+  --border-color: #e9ecef;
+  --accent: #198754;
+  --accent-soft: rgba(25,135,84,.12);
+  --bs-primary: #198754;
+  --bs-primary-rgb: 25, 135, 84;
+  --bs-link-color: #198754;
+  --bs-link-hover-color: #146c43;
 }
 
 html[data-bs-theme=dark] {
-  --page-bg: #0d1117;
-  --card-bg: #161b22;
-  --text-primary: #e6edf3;
-  --text-muted: #8b949e;
-  --border-color: #30363d;
-  --sidebar-bg: #010409;
+  --page-bg: #121a17;
+  --card-bg: #1d2924;
+  --surface-muted: #25352e;
+  --text-primary: #e5ebe8;
+  --text-muted: #aab8b1;
+  --border-color: #35483f;
+  --sidebar-bg: #132b21;
+}
+html { color-scheme: light; }
+html[data-bs-theme=dark] { color-scheme: dark; }
+body { background: var(--page-bg); color: var(--text-primary); font-size: .9rem; }
+html[data-bs-theme=dark] .bg-white { background: var(--card-bg) !important; }
+html[data-bs-theme=dark] .card-header,
+html[data-bs-theme=dark] .dropdown-menu { background: var(--surface-muted) !important; color: var(--text-primary); }
+html[data-bs-theme=dark] .table thead th { background: var(--surface-muted); color: var(--text-primary); }
+.form-control:focus, .form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 .2rem var(--accent-soft); }
+.btn-primary { --bs-btn-bg: #198754; --bs-btn-border-color: #198754; --bs-btn-hover-bg: #157347; --bs-btn-hover-border-color: #146c43; --bs-btn-active-bg: #146c43; --bs-btn-active-border-color: #136c43; }
+.btn-outline-primary { --bs-btn-color: #198754; --bs-btn-border-color: #198754; --bs-btn-hover-bg: #198754; --bs-btn-hover-border-color: #198754; --bs-btn-active-bg: #146c43; --bs-btn-active-border-color: #136c43; }
+a { --bs-link-color-rgb: 25,135,84; --bs-link-hover-color-rgb: 20,108,67; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
 }
 
 html[data-bs-theme=dark] body { background: var(--page-bg) !important; color: var(--text-primary); }
-html[data-bs-theme=dark] .bg-white { background: var(--card-bg) !important; }
 html[data-bs-theme=dark] .bg-light { background: var(--page-bg) !important; }
 html[data-bs-theme=dark] .border { border-color: var(--border-color) !important; }
 html[data-bs-theme=dark] .text-muted { color: var(--text-muted) !important; }
 html[data-bs-theme=dark] .card { background: var(--card-bg); border-color: var(--border-color); }
-html[data-bs-theme=dark] .table { color: var(--text-primary); }
+html[data-bs-theme=dark] .table { --bs-table-color: var(--text-primary); --bs-table-bg: transparent; --bs-table-hover-bg: rgba(255,255,255,.04); }
 html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,255,.04); }
 
 /* ── Layout ─────────────────────────────────────────────── */
@@ -64,7 +89,8 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
   color: rgba(255,255,255,.75);
   text-decoration: none;
   font-size: .875rem;
-  border-radius: 0;
+  border-radius: 6px;
+  margin: 1px .5rem;
   transition: background .15s, color .15s;
   white-space: nowrap;
 }
@@ -93,7 +119,7 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.1); }
 .stat-card .icon-box {
   width: 52px; height: 52px;
-  border-radius: .6rem;
+  border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.4rem;
 }
@@ -110,7 +136,7 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 /* ── Auth pages ─────────────────────────────────────────── */
 .auth-wrapper {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1d23 0%, #0d6efd22 100%);
+  background: linear-gradient(135deg, #1a3c2e 0%, #2d6a4f 100%);
   display: flex; align-items: center; justify-content: center;
 }
 .auth-card {
@@ -119,7 +145,7 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
   box-shadow: 0 8px 40px rgba(0,0,0,.18);
   padding: 2.5rem 2rem;
 }
-.auth-logo { font-size: 1.6rem; font-weight: 800; color: #0d6efd; }
+.auth-logo { font-size: 1.6rem; font-weight: 800; color: var(--accent); }
 .auth-logo i { font-size: 2rem; }
 
 /* ── Badges / status ────────────────────────────────────── */

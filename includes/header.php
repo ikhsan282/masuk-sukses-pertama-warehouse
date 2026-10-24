@@ -16,7 +16,7 @@ if ($current_user && can('stock.alerts')) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($page_title) ?> — <?= APP_NAME ?></title>
-  <meta name="theme-color" content="#0d6efd">
+  <meta name="theme-color" content="#198754">
   <link rel="manifest" href="<?= APP_URL ?>/manifest.json">
   <script>
   (function(){try{var t=localStorage.getItem('mw_theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-bs-theme',t);}catch(e){}})();

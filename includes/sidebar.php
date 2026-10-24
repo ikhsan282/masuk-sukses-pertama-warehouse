@@ -6,10 +6,10 @@ function nav_active(string $path): string {
     return ($current_url === $path || str_starts_with($current_url, $path . '/')) ? 'active' : '';
 }
 ?>
-<nav id="sidebar" class="sidebar bg-dark text-white d-flex flex-column">
+<nav id="sidebar" class="sidebar text-white d-flex flex-column">
   <div class="sidebar-header d-flex align-items-center justify-content-between px-3 py-3 border-bottom border-secondary">
     <a href="<?= APP_URL ?>/pages/dashboard.php" class="text-white text-decoration-none d-flex align-items-center gap-2">
-      <i class="bi bi-boxes fs-5 text-primary"></i>
+      <i class="bi bi-boxes fs-5 text-success"></i>
       <span class="fw-bold sidebar-label"><?= APP_NAME ?></span>
     </a>
   </div>
