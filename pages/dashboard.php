@@ -265,7 +265,7 @@ new Chart(document.getElementById('valueChart'), {
     labels: <?= json_encode(array_column($top_items, 'name')) ?>,
     datasets: [{
       data: <?= json_encode(array_column($top_items, 'value')) ?>,
-      backgroundColor: ['#0d6efd','#198754','#ffc107','#dc3545','#6c757d']
+      backgroundColor: ['#198754','#2d6a4f','#ffc107','#dc3545','#6c757d']
     }]
   },
   options: {

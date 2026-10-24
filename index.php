@@ -47,13 +47,17 @@ if ($q_value) $inventory_value = (float)$q_value->fetch_row()[0];
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css">
   <style>
     :root {
-      --brand-primary: #0d6efd;
-      --brand-dark: #0a58ca;
-      --brand-accent: #0dcaf0;
+      --brand-primary: #198754;
+      --brand-dark: #146c43;
+      --brand-accent: #2d6a4f;
+      --bs-primary: #198754;
+      --bs-primary-rgb: 25, 135, 84;
+      --bs-link-color: #198754;
+      --bs-link-hover-color: #146c43;
       --text-dark: #212529;
       --text-muted: #6c757d;
       --border-subtle: #dee2e6;
-      --card-shadow: 0 8px 24px rgba(13, 110, 253, 0.12);
+      --card-shadow: 0 8px 24px rgba(25, 135, 84, 0.12);
     }
     body {
       font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -67,7 +71,7 @@ if ($q_value) $inventory_value = (float)$q_value->fetch_row()[0];
     }
     .hero-section {
       padding: 5rem 0 4rem;
-      background: linear-gradient(135deg, rgba(13, 110, 253, 0.05) 0%, rgba(255, 255, 255, 1) 100%);
+      background: linear-gradient(135deg, rgba(25, 135, 84, 0.05) 0%, rgba(255, 255, 255, 1) 100%);
       border-bottom: 1px solid var(--border-subtle);
     }
     .stat-box {

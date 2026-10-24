@@ -127,7 +127,7 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 /* ── Tables ─────────────────────────────────────────────── */
 .table-card { border-radius: .75rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
 .table thead th { font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: #f8f9fa; }
-.table tbody tr:hover { background: #f0f4ff; }
+.table tbody tr:hover { background: var(--accent-soft); }
 .table td, .table th { vertical-align: middle; }
 
 /* Tom Select dropdowns live under <body> so responsive/grid overflow cannot clip them. */
