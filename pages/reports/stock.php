@@ -52,7 +52,7 @@ $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
     <a href="stock_export.php?<?=http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="stock_export.php?<?=http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show,'format'=>'pdf'])?>" class="btn btn-outline-danger"><i class="bi bi-file-pdf me-1"></i>PDF</a>
+    <a href="stock_export.php?<?=http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 

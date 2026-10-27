@@ -16,37 +16,20 @@ $params[]=&$date_from; $params[]=&$date_to; $types.='ss';
 if($loc_filter){$where_parts[]='so.location_id=?';$params[]=&$loc_filter;$types.='i';}
 $where='WHERE '.implode(' AND ',$where_parts);
 
-// PDF export
-if (req_str('format')==='pdf') {
-    require_once __DIR__.'/../../includes/pdf.php';
-    $pdf = new SimplePDF();
-    $pdf->addText('Laporan Barang Keluar', 14);
-    $pdf->addText('Periode: '.tgl($date_from).' - '.tgl($date_to), 10);
-    
-    $tot=$db->prepare("SELECT COALESCE(SUM(d.quantity),0)
-        FROM stock_out so JOIN stock_out_details d ON d.stock_out_id=so.id $where");
-    $tot->bind_param($types,...$params);$tot->execute();$tot->bind_result($period_qty);$tot->fetch();$tot->close();
-    
-    $pdf->addText('Total Qty: '.number_format($period_qty).' unit', 10);
-    $pdf->addText('', 8);
-    $pdf->addTableRow(['Ref','Tgl','Lokasi','Penerima','Qty'],[60,50,80,100,50],true);
-    
-    $st=$db->prepare("SELECT so.reference_no, so.transaction_date, so.recipient,
-        l.name AS location_name,
-        (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
-        FROM stock_out so JOIN locations l ON l.id=so.location_id
-        $where ORDER BY so.transaction_date DESC, so.id DESC");
-    $st->bind_param($types,...$params); $st->execute(); $rs=$st->get_result();
-    while($r=$rs->fetch_assoc()) {
-        $pdf->addTableRow([$r['reference_no'],substr($r['transaction_date'],0,10),
-            $r['location_name'],$r['recipient']??'-',number_format($r['total_qty'])],
-            [60,50,80,100,50]);
-    }
-    $st->close();
-    header('Content-Type: application/pdf');
-    header('Content-Disposition: attachment; filename="barang_keluar_'.date('Ymd').'.pdf"');
-    echo $pdf->output();
-    exit;
+// Print-friendly HTML export
+if (req_str('format')==='print') {
+$title='Laporan Barang Keluar'; $subtitle='Periode: '.tgl($date_from).' - '.tgl($date_to);
+$tot=$db->prepare("SELECT COALESCE(SUM(d.quantity),0) FROM stock_out so JOIN stock_out_details d ON d.stock_out_id=so.id $where"); $tot->bind_param($types,...$params);$tot->execute();$tot->bind_result($period_qty);$tot->fetch();$tot->close(); $subtitle.=' | Total Qty: '.number_format($period_qty).' unit';
+$st=$db->prepare("SELECT so.reference_no, so.transaction_date, so.recipient, l.name AS location_name, (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty FROM stock_out so JOIN locations l ON l.id=so.location_id $where ORDER BY so.transaction_date DESC, so.id DESC"); $st->bind_param($types,...$params);
+$st->execute(); $rs=$st->get_result();
+header('Content-Type: text/html; charset=UTF-8');
+function report_cell($value) { return '<td>'.htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8').'</td>'; }
+echo '<!doctype html><html><head><meta charset="utf-8"><title>'.htmlspecialchars($title,ENT_QUOTES,'UTF-8').'</title><style>body{font:14px Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:6px;text-align:left}th{background:#eee}@media print{.no-print{display:none}body{margin:0}}</style></head><body><button class="no-print" onclick="window.print()">Print</button><h1>'.htmlspecialchars($title,ENT_QUOTES,'UTF-8').'</h1><p>'.htmlspecialchars($subtitle??'',ENT_QUOTES,'UTF-8').'</p><table><thead><tr>';
+foreach(['Ref','Tgl','Lokasi','Penerima','Qty'] as $h) echo '<th>'.htmlspecialchars($h,ENT_QUOTES,'UTF-8').'</th>';
+echo '</tr></thead><tbody>';
+while($r=$rs->fetch_assoc()) { $cells=[$r['reference_no'],substr($r['transaction_date'],0,10),$r['location_name'],$r['recipient']??'-',number_format($r['total_qty'])]; foreach($cells as $cell) echo report_cell($cell); echo '</tr>'; }
+$st->close(); echo '</tbody></table></body></html>'; exit;
+
 }
 
 // CSV export

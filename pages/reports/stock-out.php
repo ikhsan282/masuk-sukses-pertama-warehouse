@@ -45,7 +45,7 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
     <a href="stock-out_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="stock-out_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter,'format'=>'pdf'])?>" class="btn btn-outline-danger"><i class="bi bi-file-pdf me-1"></i>PDF</a>
+    <a href="stock-out_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 
