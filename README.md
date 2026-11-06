@@ -1,4 +1,4 @@
-# Maura Warehouse
+# Masuk Sukses Pertama Warehouse
 
 Sistem Manajemen Inventori & Gudang — PHP Native + MySQLi + Bootstrap 5.
 
@@ -27,20 +27,20 @@ Edit `config/database.php`:
 define('DB_HOST', 'localhost');
 define('DB_USER', 'your_db_user');
 define('DB_PASS', 'your_db_password');
-define('DB_NAME', 'db_maura_warehouse');
+define('DB_NAME', 'db_msp_warehouse');
 ```
 
 ### 3. Konfigurasi Aplikasi
 Edit `config/config.php`:
 ```php
-define('APP_URL', 'http://yourdomain.com/maura-warehouse');
+define('APP_URL', 'http://yourdomain.com/masuk-sukses-pertama-warehouse');
 define('MAIL_FROM', 'no-reply@yourdomain.com');
 define('COMPANY_NAME', 'Nama Perusahaan');
 define('COMPANY_ADDRESS', 'Alamat Perusahaan');
 ```
 
 ### 4. Upload ke cPanel
-- Upload semua file ke `public_html/maura-warehouse/`
+- Upload semua file ke `public_html/masuk-sukses-pertama-warehouse/`
 - Pastikan `.htaccess` ikut terupload
 - Set permission folder: `755`, file: `644`
 
@@ -60,7 +60,7 @@ define('COMPANY_ADDRESS', 'Alamat Perusahaan');
 
 ## Struktur File
 ```
-maura-warehouse/
+masuk-sukses-pertama-warehouse/
 ├── .htaccess                  # Apache config, security headers
 ├── index.php                  # Entry point → redirect
 ├── config/

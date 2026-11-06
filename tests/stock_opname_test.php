@@ -14,10 +14,10 @@ function generate_ref(string $prefix): string { return $prefix . bin2hex(random_
 
 const HOST = '127.0.0.1';
 const PORT = 13306;
-const TEST_DB = 'db_maura_warehouse_test_opname';
+const TEST_DB = 'db_msp_warehouse_test_opname';
 $boot = new mysqli(HOST, 'root', '', '', PORT);
 $boot->query('DROP DATABASE IF EXISTS `' . TEST_DB . '`');
-$schema = str_replace('db_maura_warehouse', TEST_DB, file_get_contents(__DIR__ . '/../database/schema.sql'));
+$schema = str_replace('db_msp_warehouse', TEST_DB, file_get_contents(__DIR__ . '/../database/schema.sql'));
 $boot->multi_query($schema);
 do { if ($r = $boot->store_result()) $r->free(); } while ($boot->more_results() && $boot->next_result());
 $boot->close();

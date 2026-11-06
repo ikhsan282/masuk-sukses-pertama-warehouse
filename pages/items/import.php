@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (isset($_POST['action']) && $_POST['action'] === 'clear') {
         $key = req_str('upload_key');
-        $filename = 'maura_import_' . hash('sha256', session_id() . ':' . $key);
+        $filename = 'msp_import_' . hash('sha256', session_id() . ':' . $key);
         $path = sys_get_temp_dir() . '/' . $filename;
         if (file_exists($path)) @unlink($path);
         set_flash('info', 'Preview dibersihkan.');
@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (isset($_POST['action']) && $_POST['action'] === 'confirm') {
         $key = req_str('upload_key');
-        $filename = 'maura_import_' . hash('sha256', session_id() . ':' . $key);
+        $filename = 'msp_import_' . hash('sha256', session_id() . ':' . $key);
         $path = sys_get_temp_dir() . '/' . $filename;
         if (!file_exists($path)) {
             set_flash('error', 'Data upload tidak ditemukan. Upload ulang.');
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $preview = item_import_preview($db, $raw_rows);
                 
                 $upload_key = bin2hex(random_bytes(16));
-                $temp_path = sys_get_temp_dir() . '/maura_import_' . $upload_key;
+                $temp_path = sys_get_temp_dir() . '/msp_import_' . $upload_key;
                 move_uploaded_file($file['tmp_name'], $temp_path);
                 
             } catch (Exception $e) {

@@ -22,12 +22,12 @@ function test(string $name, bool $pass, string $reason = ''): void {
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', '');
-define('DB_NAME', 'db_maura_warehouse_test');
+define('DB_NAME', 'db_msp_warehouse_test');
 define('DB_PORT', 13306);
 define('DB_CHARSET', 'utf8mb4');
 
 // Override config constants
-define('APP_NAME', 'Maura Warehouse Test');
+define('APP_NAME', 'Masuk Sukses Pertama Warehouse Test');
 define('APP_URL', 'http://localhost/test');
 define('MAIL_FROM', 'test@example.com');
 define('MAIL_FROM_NAME', 'Test Mailer');
@@ -65,7 +65,7 @@ echo "=== Low Stock Alert Tests ===\n\n";
 $boot = new mysqli(DB_HOST, DB_USER, DB_PASS, '', DB_PORT);
 if ($boot->connect_error) die("DB connection failed: " . $boot->connect_error . "\n");
 $boot->query("DROP DATABASE IF EXISTS `" . DB_NAME . "`");
-$schema = str_replace('db_maura_warehouse', DB_NAME, file_get_contents(__DIR__ . '/../database/schema.sql'));
+$schema = str_replace('db_msp_warehouse', DB_NAME, file_get_contents(__DIR__ . '/../database/schema.sql'));
 if (!$boot->multi_query($schema)) die("schema load failed: " . $boot->error . "\n");
 do { if ($r = $boot->store_result()) $r->free(); if ($boot->errno) die("schema stmt failed: " . $boot->error . "\n"); } while ($boot->more_results() && $boot->next_result());
 $boot->close();

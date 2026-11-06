@@ -1,11 +1,11 @@
--- Maura Warehouse Database Schema
--- DB: db_maura_warehouse
+-- Masuk Sukses Pertama Warehouse Database Schema
+-- DB: db_msp_warehouse
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 SET time_zone = "+07:00";
 
-CREATE DATABASE IF NOT EXISTS `db_maura_warehouse` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `db_maura_warehouse`;
+CREATE DATABASE IF NOT EXISTS `db_msp_warehouse` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `db_msp_warehouse`;
 
 -- Roles
 CREATE TABLE `roles` (
@@ -438,10 +438,10 @@ SELECT 4, id FROM `permissions` WHERE `name` IN (
 
 -- Default users for each role (password: P@ssw0rd)
 INSERT INTO `users` (`role_id`, `name`, `username`, `email`, `password`, `email_verified_at`, `is_active`) VALUES
-(1, 'Super Administrator', 'superadmin',  'admin@maurawarehouse.com',    '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
-(2, 'Admin',               'admin',       'admin2@maurawarehouse.com',   '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
-(3, 'Staff Gudang',        'staffgudang', 'staffgudang@maurawarehouse.com', '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
-(4, 'Viewer',              'viewer',      'viewer@maurawarehouse.com',   '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1);
+(1, 'Super Administrator', 'superadmin',  'admin@localhost',    '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
+(2, 'Admin',               'admin',       'admin2@localhost',   '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
+(3, 'Staff Gudang',        'staffgudang', 'staffgudang@localhost', '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1),
+(4, 'Viewer',              'viewer',      'viewer@localhost',   '$2y$12$oucBlvl6RGkxgjQ0iAF2IehCiJI2tn9epJCvpnW/A0BBFcRKnbTfu', NOW(), 1);
 
 -- Seed: categories
 INSERT INTO `categories` (`code`, `name`) VALUES

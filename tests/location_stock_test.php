@@ -18,7 +18,7 @@ require_once __DIR__ . '/../includes/functions.php';
 
 $boot = new mysqli(DB_HOST, DB_USER, DB_PASS, '', DB_PORT);
 $boot->query('DROP DATABASE IF EXISTS `' . DB_NAME . '`');
-$schema = str_replace('db_maura_warehouse', DB_NAME, file_get_contents(__DIR__ . '/../database/schema.sql'));
+$schema = str_replace('db_msp_warehouse', DB_NAME, file_get_contents(__DIR__ . '/../database/schema.sql'));
 $boot->multi_query($schema);
 do { if ($r = $boot->store_result()) $r->free(); } while ($boot->more_results() && $boot->next_result());
 $boot->close();

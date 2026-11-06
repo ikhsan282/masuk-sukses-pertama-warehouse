@@ -1,4 +1,4 @@
-// Maura Warehouse – app.js
+// Masuk Sukses Pertama Warehouse – app.js
 
 document.addEventListener('DOMContentLoaded', () => {
 

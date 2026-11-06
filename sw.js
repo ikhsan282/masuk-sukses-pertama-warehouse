@@ -1,9 +1,9 @@
-// Maura Warehouse Service Worker
-const CACHE_VERSION = 'maura-wh-v2';
-const OFFLINE_URL = '/maura-warehouse/offline.html';
+// Masuk Sukses Pertama Warehouse Service Worker
+const CACHE_VERSION = 'msp-wh-v2';
+const OFFLINE_URL = '/masuk-sukses-pertama-warehouse/offline.html';
 
 const STATIC_ASSETS = [
-  '/maura-warehouse/offline.html'
+  '/masuk-sukses-pertama-warehouse/offline.html'
 ];
 
 // Install: cache static assets
