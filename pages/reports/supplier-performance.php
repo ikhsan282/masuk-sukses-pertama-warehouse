@@ -12,9 +12,11 @@ $supplier_filter = req_int('supplier_id');
 $start_date = req_str('start_date', date('Y-m-01')); // Default: first day of current month
 $end_date = req_str('end_date', date('Y-m-d'));      // Default: today
 $page = max(1, req_int('page', 1));
+$cf = resolve_company_filter('company_id');
+$comp_in = $cf['sql_in'];
 
 // Build query conditions
-$where_parts = ['po.order_date BETWEEN ? AND ?'];
+$where_parts = ["po.company_id IN ($comp_in)", 'po.order_date BETWEEN ? AND ?'];
 $params = [$start_date, $end_date];
 $types = 'ss';
 
@@ -64,7 +66,7 @@ $query = "SELECT
     ) as on_time_rate,
     COALESCE(SUM(pod.quantity * pod.buy_price), 0) as total_value
 FROM suppliers s
-LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.order_date BETWEEN ? AND ?
+LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.company_id IN ($comp_in) AND po.order_date BETWEEN ? AND ?
 LEFT JOIN purchase_order_details pod ON po.id = pod.po_id
 " . ($supplier_filter ? "WHERE s.id = ?" : "") . "
 GROUP BY s.id
@@ -97,7 +99,7 @@ $summary_query = "SELECT
     COALESCE(SUM(pod.quantity * pod.buy_price), 0) as total_value
 FROM purchase_orders po
 LEFT JOIN purchase_order_details pod ON po.id = pod.po_id
-WHERE po.order_date BETWEEN ? AND ?";
+WHERE po.company_id IN ($comp_in) AND po.order_date BETWEEN ? AND ?";
 
 if ($supplier_filter) {
     $summary_query .= " AND po.supplier_id = ?";
@@ -116,13 +118,14 @@ include __DIR__ . '/../../includes/header.php';
   <h4><i class="bi bi-graph-up me-2 text-primary"></i>Laporan Performa Supplier</h4>
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="supplier-performance_export.php?<?=http_build_query(['supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="supplier-performance_export.php?<?=http_build_query(['supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
+    <a href="supplier-performance_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
+    <a href="supplier-performance_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 
 <div class="alert alert-info py-2 small">
   <i class="bi bi-info-circle me-1"></i>
+  Cakupan: <strong><?=htmlspecialchars($cf['label'])?></strong> &bull;
   Periode: <strong><?=tgl($start_date)?></strong> s/d <strong><?=tgl($end_date)?></strong> &bull; 
   Total PO: <strong><?=$summary['total_po']?></strong> &bull; 
   Total Nilai: <strong><?=idr((float)$summary['total_value'])?></strong>
@@ -131,6 +134,7 @@ include __DIR__ . '/../../includes/header.php';
 <div class="card table-card">
   <div class="card-header bg-white py-2">
     <form class="d-flex flex-wrap gap-2" method="GET">
+      <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <input type="date" name="start_date" value="<?=e($start_date)?>" class="form-control form-control-sm" style="max-width:160px" required>
       <span class="align-self-center">s/d</span>
       <input type="date" name="end_date" value="<?=e($end_date)?>" class="form-control form-control-sm" style="max-width:160px" required>
@@ -202,7 +206,7 @@ include __DIR__ . '/../../includes/header.php';
   </div>
   <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
     <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> supplier</small>
-    <?=pagination_html($pag, '?' . http_build_query(['supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date]) . '&page=%d')?>
+    <?=pagination_html($pag, '?' . http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date]) . '&page=%d')?>
   </div>
 </div>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>

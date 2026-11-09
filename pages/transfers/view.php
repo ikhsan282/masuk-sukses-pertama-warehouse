@@ -6,9 +6,12 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('transfers.view');
 $db = getDB();
 $id = req_int('id');
-$st = $db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name
+$st = $db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name,
+    fc.code AS from_comp_code, fc.name AS from_comp_name, tc.code AS to_comp_code, tc.name AS to_comp_name
     FROM transfers t JOIN locations fl ON fl.id=t.from_location_id
-    JOIN locations tl ON tl.id=t.to_location_id JOIN users u ON u.id=t.user_id WHERE t.id=?');
+    JOIN locations tl ON tl.id=t.to_location_id JOIN users u ON u.id=t.user_id
+    LEFT JOIN companies fc ON fc.id=t.from_company_id
+    LEFT JOIN companies tc ON tc.id=t.to_company_id WHERE t.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header=$st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/transfers/index.php'); }
@@ -45,6 +48,10 @@ $page_title='Detail Transfer'; include __DIR__.'/../../includes/header.php';
       <div class="card-body">
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:40%">No. Referensi</td><td><code class="fw-bold"><?=htmlspecialchars($header['reference_no'])?></code></td></tr>
+          <tr><td class="text-muted small">Dari PT</td><td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars(($header['from_comp_code'] ?? 'MSP') . ' — ' . ($header['from_comp_name'] ?? ''))?></span></td></tr>
+          <?php if (($header['from_company_id'] ?? 1) != ($header['to_company_id'] ?? 1)): ?>
+          <tr><td class="text-muted small">Ke PT</td><td><span class="badge bg-success-subtle text-success border"><?=htmlspecialchars(($header['to_comp_code'] ?? 'MSP') . ' — ' . ($header['to_comp_name'] ?? ''))?></span></td></tr>
+          <?php endif; ?>
           <tr><td class="text-muted small">Tanggal</td><td><?=tgl($header['transaction_date'])?></td></tr>
           <tr><td class="text-muted small">Dari Lokasi</td><td class="fw-semibold text-danger"><?=htmlspecialchars($header['from_loc'])?></td></tr>
           <tr><td class="text-muted small">Ke Lokasi</td><td class="fw-semibold text-success"><?=htmlspecialchars($header['to_loc'])?></td></tr>

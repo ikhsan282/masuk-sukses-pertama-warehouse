@@ -18,8 +18,19 @@ require_once __DIR__ . '/functions.php';
  * Query low-stock items (stock <= min_stock)
  * Returns array of items with: id, code, name, min_stock, total_stock, suggested_qty, unit, buy_price, stock_value
  */
-function get_low_stock_items(): array {
+function get_low_stock_items(?int $company_id = null): array {
     $db = getDB();
+    if ($company_id === null && function_exists('current_company_id')) {
+        $company_id = current_company_id();
+    }
+    
+    $where_company = '';
+    $join_company = '';
+    if ($company_id) {
+        $join_company = "AND s.company_id = $company_id";
+        $where_company = "AND (i.company_id IS NULL OR i.company_id = $company_id)";
+    }
+
     $query = "
         SELECT 
             i.id,
@@ -33,8 +44,8 @@ function get_low_stock_items(): array {
             COALESCE(SUM(s.quantity), 0) * i.buy_price AS stock_value
         FROM items i
         JOIN units u ON u.id = i.unit_id
-        LEFT JOIN stock s ON s.item_id = i.id
-        WHERE i.is_active = 1
+        LEFT JOIN stock s ON s.item_id = i.id $join_company
+        WHERE i.is_active = 1 $where_company
         GROUP BY i.id, i.code, i.name, i.min_stock, u.abbreviation, i.buy_price
         HAVING total_stock <= i.min_stock
         ORDER BY total_stock ASC, i.name ASC

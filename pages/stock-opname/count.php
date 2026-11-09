@@ -35,7 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$items = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$opname_comp_id = (int)($opname['company_id'] ?: current_company_id());
+$items = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=' . $opname_comp_id . ') ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
 $list = $db->prepare('SELECT oi.*,i.code,i.name,u.abbreviation,l.code location_code,l.name location_name
     FROM stock_opname_items oi JOIN items i ON i.id=oi.item_id JOIN units u ON u.id=i.unit_id

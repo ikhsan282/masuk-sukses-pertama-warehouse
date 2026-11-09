@@ -40,8 +40,128 @@ function _load_session(int $user_id): void {
     while ($r = $res->fetch_assoc()) $perms[] = $r['name'];
     $st2->close();
 
-    $_SESSION['user']  = $user;
-    $_SESSION['perms'] = $perms;
+    // Load user companies
+    $st3 = $db->prepare('SELECT c.id, c.code, c.name, c.address, c.phone, c.email, c.npwp, c.logo, c.is_holding, uc.is_default
+        FROM companies c
+        JOIN user_companies uc ON uc.company_id = c.id
+        WHERE uc.user_id = ? AND c.is_active = 1
+        ORDER BY c.is_holding DESC, c.name ASC');
+    $st3->bind_param('i', $user_id);
+    $st3->execute();
+    $comp_res = $st3->get_result();
+    $companies = [];
+    $default_comp = null;
+    while ($c = $comp_res->fetch_assoc()) {
+        $companies[] = $c;
+        if ($c['is_default'] || $default_comp === null) {
+            $default_comp = $c;
+        }
+    }
+    $st3->close();
+
+    // Fallback if user has no explicit company mapping: assign holding company (id=1)
+    if (empty($companies)) {
+        $fallback = $db->query('SELECT id, code, name, address, phone, email, npwp, logo, is_holding FROM companies WHERE id=1 LIMIT 1')->fetch_assoc();
+        if ($fallback) {
+            $companies[] = $fallback;
+            $default_comp = $fallback;
+        }
+    }
+
+    $_SESSION['user']           = $user;
+    $_SESSION['perms']          = $perms;
+    $_SESSION['user_companies'] = $companies;
+    $_SESSION['active_company'] = $default_comp;
+}
+
+// ── Multi-Company helpers ──────────────────────────────────────────────────
+function current_company(): ?array {
+    return $_SESSION['active_company'] ?? null;
+}
+
+function current_company_id(): int {
+    return (int)($_SESSION['active_company']['id'] ?? 1);
+}
+
+function user_companies(): array {
+    return $_SESSION['user_companies'] ?? [];
+}
+
+function is_holding_user(): bool {
+    return !empty($_SESSION['active_company']['is_holding']);
+}
+
+function switch_company(int $company_id): bool {
+    $companies = user_companies();
+    foreach ($companies as $comp) {
+        if ((int)$comp['id'] === $company_id) {
+            $_SESSION['active_company'] = $comp;
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Resolve company filter for Reports & Stock views.
+ * Supports 'all' (Consolidated view across all user's assigned PTs) or a specific company_id.
+ */
+function resolve_company_filter(string $param = 'company_id'): array {
+    $raw = isset($_REQUEST[$param]) ? trim((string)$_REQUEST[$param]) : (string)current_company_id();
+    $allowed_companies = user_companies();
+    $allowed_ids = array_values(array_filter(array_map(fn($c) => (int)$c['id'], $allowed_companies)));
+    if (empty($allowed_ids)) {
+        $allowed_ids = [current_company_id()];
+    }
+
+    if ($raw === 'all' && count($allowed_ids) > 1) {
+        return [
+            'mode'        => 'all',
+            'is_all'      => true,
+            'company_id'  => 0,
+            'param_value' => 'all',
+            'ids'         => $allowed_ids,
+            'sql_in'      => implode(',', $allowed_ids),
+            'label'       => 'Semua PT (Konsolidasi Grup)',
+        ];
+    }
+
+    $cid = (int)$raw;
+    if (!in_array($cid, $allowed_ids, true)) {
+        $cid = current_company_id();
+    }
+    $comp_label = 'MSP';
+    foreach ($allowed_companies as $c) {
+        if ((int)$c['id'] === $cid) {
+            $comp_label = $c['code'] . ' — ' . $c['name'];
+            break;
+        }
+    }
+
+    return [
+        'mode'        => 'single',
+        'is_all'      => false,
+        'company_id'  => $cid,
+        'param_value' => (string)$cid,
+        'ids'         => [$cid],
+        'sql_in'      => (string)$cid,
+        'label'       => $comp_label,
+    ];
+}
+
+function company_filter_select_html(string $name = 'company_id', string $selected = ''): string {
+    $companies = user_companies();
+    if (count($companies) <= 1) return '';
+    if ($selected === '') $selected = (string)current_company_id();
+    $html = '<select name="' . htmlspecialchars($name) . '" class="form-select form-select-sm" style="max-width:230px">';
+    $html .= '<option value="all"' . ($selected === 'all' ? ' selected' : '') . '>🏢 Semua PT (Konsolidasi)</option>';
+    foreach ($companies as $c) {
+        $sel = ((string)$c['id'] === (string)$selected) ? ' selected' : '';
+        $html .= '<option value="' . (int)$c['id'] . '"' . $sel . '>'
+               . htmlspecialchars($c['code'] . ' — ' . $c['name']) . '</option>';
+    }
+    $html .= '</select>';
+    return $html;
 }
 
 // ── Auth checks ────────────────────────────────────────────────────────────

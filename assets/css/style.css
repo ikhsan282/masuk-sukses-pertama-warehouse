@@ -34,8 +34,12 @@ html[data-bs-theme=dark] { color-scheme: dark; }
 body { background: var(--page-bg); color: var(--text-primary); font-size: .9rem; }
 html[data-bs-theme=dark] .bg-white { background: var(--card-bg) !important; }
 html[data-bs-theme=dark] .card-header,
-html[data-bs-theme=dark] .dropdown-menu { background: var(--surface-muted) !important; color: var(--text-primary); }
+html[data-bs-theme=dark] .card-footer,
+html[data-bs-theme=dark] .dropdown-menu { background: var(--surface-muted) !important; color: var(--text-primary); border-color: var(--border-color) !important; }
 html[data-bs-theme=dark] .table thead th { background: var(--surface-muted); color: var(--text-primary); }
+html[data-bs-theme=dark] .modal-content { background-color: var(--card-bg); border-color: var(--border-color); color: var(--text-primary); }
+html[data-bs-theme=dark] .modal-header,
+html[data-bs-theme=dark] .modal-footer { border-color: var(--border-color); }
 .form-control:focus, .form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 .2rem var(--accent-soft); }
 .btn-primary { --bs-btn-bg: #198754; --bs-btn-border-color: #198754; --bs-btn-hover-bg: #157347; --bs-btn-hover-border-color: #146c43; --bs-btn-active-bg: #146c43; --bs-btn-active-border-color: #136c43; }
 .btn-outline-primary { --bs-btn-color: #198754; --bs-btn-border-color: #198754; --bs-btn-hover-bg: #198754; --bs-btn-hover-border-color: #198754; --bs-btn-active-bg: #146c43; --bs-btn-active-border-color: #136c43; }
@@ -132,6 +136,81 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 
 /* Tom Select dropdowns live under <body> so responsive/grid overflow cannot clip them. */
 .ts-dropdown { z-index: 1060; }
+
+/* Tom Select input group integration */
+.input-group > .ts-wrapper {
+  flex: 1 1 auto;
+  width: 1%;
+  min-width: 0;
+}
+.input-group > .ts-wrapper .ts-control {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+.input-group > .ts-wrapper:not(:first-child) .ts-control {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+}
+
+/* Tom Select in Dark Mode */
+html[data-bs-theme=dark] .ts-control {
+  background-color: var(--surface-muted) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+html[data-bs-theme=dark] .ts-control input {
+  color: var(--text-primary) !important;
+}
+html[data-bs-theme=dark] .ts-control input::placeholder {
+  color: var(--text-muted) !important;
+}
+html[data-bs-theme=dark] .ts-dropdown {
+  background-color: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45) !important;
+}
+html[data-bs-theme=dark] .ts-dropdown .option {
+  color: var(--text-primary) !important;
+}
+html[data-bs-theme=dark] .ts-dropdown .active {
+  background-color: var(--surface-muted) !important;
+  color: #fff !important;
+}
+html[data-bs-theme=dark] .ts-dropdown .selected {
+  background-color: var(--accent-soft) !important;
+  color: var(--accent) !important;
+}
+html[data-bs-theme=dark] .ts-dropdown .optgroup-header {
+  background-color: var(--surface-muted) !important;
+  color: var(--text-muted) !important;
+}
+html[data-bs-theme=dark] .ts-wrapper.single .ts-control::after {
+  border-color: var(--text-muted) transparent transparent transparent !important;
+}
+
+/* Top Navbar Responsive */
+.navbar .navbar-brand {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.company-switch-name {
+  max-width: 110px;
+  display: inline-block;
+}
+@media (min-width: 576px) {
+  .company-switch-name {
+    max-width: 180px;
+  }
+}
+@media (max-width: 575.98px) {
+  .navbar .navbar-brand {
+    max-width: 130px;
+    font-size: 0.85rem;
+  }
+}
 
 /* ── Auth pages ─────────────────────────────────────────── */
 .auth-wrapper {

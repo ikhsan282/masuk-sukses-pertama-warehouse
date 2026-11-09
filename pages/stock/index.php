@@ -9,15 +9,17 @@ $db = getDB();
 $search     = req_str('q');
 $loc_filter = req_int('location_id');
 $page       = max(1, req_int('page', 1));
+$cf         = resolve_company_filter('company_id');
+$comp_in    = $cf['sql_in'];
 
-$where_parts = ['i.is_active=1'];
+$where_parts = ['i.is_active=1', "(i.company_id IS NULL OR i.company_id IN ($comp_in))"];
 $params=[]; $types='';
 if ($search)     { $where_parts[]='(i.name LIKE ? OR i.code LIKE ?)'; $like="%$search%"; $params[]=&$like; $params[]=&$like; $types.='ss'; }
 if ($loc_filter) { $where_parts[]='s.location_id=?'; $params[]=&$loc_filter; $types.='i'; }
 $where = 'WHERE '.implode(' AND ',$where_parts);
 
 $cq=$db->prepare("SELECT COUNT(DISTINCT i.id) FROM items i
-    LEFT JOIN stock s ON s.item_id=i.id $where");
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where");
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
@@ -31,17 +33,17 @@ $st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock,
     FROM items i
     JOIN categories c ON c.id=i.category_id
     JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in)
     $where GROUP BY i.id ORDER BY i.code LIMIT ? OFFSET ?");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
 
-// Summary stats
-$stat_zero = $db->query('SELECT COUNT(DISTINCT i.id) FROM items i LEFT JOIN stock s ON s.item_id=i.id WHERE i.is_active=1 GROUP BY i.id HAVING COALESCE(SUM(s.quantity),0)=0')->num_rows;
-$stat_low  = $db->query('SELECT COUNT(*) FROM items i LEFT JOIN (SELECT item_id,SUM(quantity) total_stock FROM stock GROUP BY item_id) s ON s.item_id=i.id WHERE i.is_active=1 AND COALESCE(s.total_stock,0) > 0 AND COALESCE(s.total_stock,0) <= i.min_stock')->fetch_row()[0];
-$stat_val  = $db->query('SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id')->fetch_row()[0];
+// Summary stats for selected company scope
+$stat_zero = $db->query("SELECT COUNT(DISTINCT i.id) FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id IN ($comp_in)) GROUP BY i.id HAVING COALESCE(SUM(s.quantity),0)=0")->num_rows;
+$stat_low  = $db->query("SELECT COUNT(*) FROM items i LEFT JOIN (SELECT item_id,SUM(quantity) total_stock FROM stock WHERE company_id IN ($comp_in) GROUP BY item_id) s ON s.item_id=i.id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id IN ($comp_in)) AND COALESCE(s.total_stock,0) > 0 AND COALESCE(s.total_stock,0) <= i.min_stock")->fetch_row()[0];
+$stat_val  = $db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id IN ($comp_in)")->fetch_row()[0];
 
 $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
 ?>
@@ -73,6 +75,7 @@ $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
 <div class="card table-card">
   <div class="card-header bg-white py-2">
     <form class="d-flex flex-wrap gap-2" method="GET">
+      <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <input type="text" name="q" class="form-control form-control-sm" style="max-width:220px"
         placeholder="Cari kode / nama..." value="<?= htmlspecialchars($search) ?>">
       <select name="location_id" class="form-select form-select-sm ts-select" style="max-width:180px">
@@ -82,7 +85,7 @@ $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
         <?php endforeach; ?>
       </select>
       <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <?php if($search||$loc_filter):?><a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a><?php endif;?>
+      <?php if($search||$loc_filter||isset($_GET['company_id'])):?><a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a><?php endif;?>
     </form>
   </div>
   <div class="table-responsive">
@@ -123,7 +126,7 @@ $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
   </div>
   <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
     <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> barang</small>
-    <?=pagination_html($pag,'?'.http_build_query(['q'=>$search,'location_id'=>$loc_filter]).'&page=%d')?>
+    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'q'=>$search,'location_id'=>$loc_filter]).'&page=%d')?>
   </div>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

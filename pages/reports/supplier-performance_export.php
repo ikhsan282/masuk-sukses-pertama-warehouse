@@ -9,29 +9,19 @@ $db = getDB();
 $supplier_filter = req_int('supplier_id');
 $start_date = req_str('start_date', date('Y-m-01'));
 $end_date = req_str('end_date', date('Y-m-d'));
-
-$where_parts = ['po.order_date BETWEEN ? AND ?'];
-$params = [$start_date, $end_date];
-$types = 'ss';
-
-if ($supplier_filter) {
-    $where_parts[] = 's.id = ?';
-    $params[] = $supplier_filter;
-    $types .= 'i';
-}
-
-$where = 'WHERE ' . implode(' AND ', $where_parts);
+$cf = resolve_company_filter('company_id');
+$comp_in = $cf['sql_in'];
 
 if (req_str('format') === 'print') {
     $title = 'Laporan Performa Supplier';
-    $subtitle = 'Periode: ' . tgl($start_date) . ' - ' . tgl($end_date);
+    $subtitle = 'Cakupan: ' . $cf['label'] . ' | Periode: ' . tgl($start_date) . ' - ' . tgl($end_date);
     $query = "SELECT s.code, s.name, COUNT(DISTINCT po.id) AS total_po,
         SUM(CASE WHEN po.status='completed' THEN 1 ELSE 0 END) AS completed_po,
         AVG(CASE WHEN po.received_at IS NOT NULL AND po.order_date IS NOT NULL THEN DATEDIFF(po.received_at, po.order_date) ELSE NULL END) AS avg_lead_time,
         ROUND((SUM(CASE WHEN po.received_at IS NOT NULL AND po.expected_date IS NOT NULL AND po.received_at <= po.expected_date THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN po.received_at IS NOT NULL AND po.expected_date IS NOT NULL THEN 1 ELSE 0 END), 0)) * 100, 2) AS on_time_rate,
         COALESCE(SUM(pod.quantity * pod.buy_price), 0) AS total_value
         FROM suppliers s
-        LEFT JOIN purchase_orders po ON s.id=po.supplier_id AND po.order_date BETWEEN ? AND ?
+        LEFT JOIN purchase_orders po ON s.id=po.supplier_id AND po.company_id IN ($comp_in) AND po.order_date BETWEEN ? AND ?
         LEFT JOIN purchase_order_details pod ON po.id=pod.po_id " . ($supplier_filter ? "WHERE s.id=?" : "") . " GROUP BY s.id ORDER BY total_value DESC";
     $params = [$start_date, $end_date];
     $types = 'ss';
@@ -73,7 +63,7 @@ $query = "SELECT s.code, s.name, s.contact_person, s.phone,
      NULLIF(SUM(CASE WHEN po.received_at IS NOT NULL AND po.expected_date IS NOT NULL THEN 1 ELSE 0 END), 0)) * 100, 2) as on_time_rate,
     COALESCE(SUM(pod.quantity * pod.buy_price), 0) as total_value
 FROM suppliers s
-LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.order_date BETWEEN ? AND ?
+LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.company_id IN ($comp_in) AND po.order_date BETWEEN ? AND ?
 LEFT JOIN purchase_order_details pod ON po.id = pod.po_id
 " . ($supplier_filter ? "WHERE s.id = ?" : "") . "
 GROUP BY s.id ORDER BY total_value DESC";

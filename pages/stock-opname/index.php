@@ -6,14 +6,16 @@ require_perm('stock_opname.view');
 $db = getDB();
 
 $status = req_str('status');
-$where = '1=1';
-$params = [];
-$types = '';
+$active_cid = current_company_id();
+$where_parts = ['o.company_id=?'];
+$params = [&$active_cid];
+$types = 'i';
 if (in_array($status, ['draft', 'finalized'], true)) {
-    $where = 'o.status=?';
+    $where_parts[] = 'o.status=?';
     $params[] = &$status;
-    $types = 's';
+    $types .= 's';
 }
+$where = implode(' AND ', $where_parts);
 
 $st = $db->prepare("SELECT o.*, u.name user_name, fu.name finalized_name,
     (SELECT COUNT(*) FROM stock_opname_items WHERE session_id=o.session_id) item_count,

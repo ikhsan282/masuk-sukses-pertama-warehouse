@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('adjustments.create');
 $db = getDB();
 
+$comp_id = current_company_id();
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -32,8 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validate item ids exist and get system stock
     if (empty($errors)) {
         foreach ($valid_items as $k => [$iid, $sys, $phy, $rsn]) {
-            $sc = $db->prepare('SELECT COALESCE(quantity,0) FROM stock WHERE item_id=? AND location_id=?');
-            $sc->bind_param('ii', $iid, $location_id);
+            $sc = $db->prepare('SELECT COALESCE(quantity,0) FROM stock WHERE item_id=? AND location_id=? AND company_id=?');
+            $sc->bind_param('iii', $iid, $location_id, $comp_id);
             $sc->execute();
             $sc->bind_result($sys_real);
             $sc->fetch();
@@ -51,12 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($errors)) {
-        $ref_no  = generate_ref('ADJ-');
+        $ref_no  = generate_ref('ADJ-', $comp_id);
         $user_id = current_user()['id'];
         $db->begin_transaction();
         try {
-            $st = $db->prepare('INSERT INTO stock_adjustments (reference_no,location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?)');
-            $st->bind_param('siiss', $ref_no, $location_id, $user_id, $notes, $trans_date);
+            $st = $db->prepare('INSERT INTO stock_adjustments (reference_no,location_id,company_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?)');
+            $st->bind_param('siiiss', $ref_no, $location_id, $comp_id, $user_id, $notes, $trans_date);
             $st->execute();
             $adj_id = $db->insert_id;
             $st->close();
@@ -79,11 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=' . (int)$comp_id . ') ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
 
 // system stock map: [location_id][item_id] => qty
 $stock_map = [];
-$sq = $db->query('SELECT location_id, item_id, quantity FROM stock');
+$sq = $db->query('SELECT location_id, item_id, quantity FROM stock WHERE company_id=' . (int)$comp_id);
 while ($r = $sq->fetch_assoc()) {
     $stock_map[(int)$r['location_id']][(int)$r['item_id']] = (int)$r['quantity'];
 }

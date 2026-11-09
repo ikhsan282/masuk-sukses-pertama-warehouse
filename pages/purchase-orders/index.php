@@ -25,8 +25,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect(APP_URL.'/pages/purchase-orders/index.php');
 }
 
-$status=req_str('status'); $where=''; $params=[]; $types='';
-if (in_array($status,['draft','pending','partial','completed','cancelled'],true)) { $where='WHERE po.status=?'; $params[]=&$status; $types='s'; }
+$active_cid = current_company_id();
+$status=req_str('status');
+$where_parts=['po.company_id=?']; $params=[&$active_cid]; $types='i';
+if (in_array($status,['draft','pending','partial','completed','cancelled'],true)) { $where_parts[]='po.status=?'; $params[]=&$status; $types.='s'; }
+$where='WHERE '.implode(' AND ', $where_parts);
 $st=$db->prepare("SELECT po.*,s.name supplier_name,l.name location_name,u.name user_name,
  (SELECT COUNT(*) FROM purchase_order_details d WHERE d.po_id=po.id) item_count,
  (SELECT COALESCE(SUM(quantity*buy_price),0) FROM purchase_order_details d WHERE d.po_id=po.id) total

@@ -10,7 +10,7 @@ verify_csrf();
 $id = req_int('id');
 $db = getDB();
 
-$st = $db->prepare('SELECT si.location_id, si.reference_no FROM stock_in si WHERE id=?');
+$st = $db->prepare('SELECT si.location_id, si.company_id, si.reference_no FROM stock_in si WHERE id=?');
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-in/index.php'); }
@@ -22,7 +22,7 @@ $details = $st2->get_result()->fetch_all(MYSQLI_ASSOC); $st2->close();
 $db->begin_transaction();
 try {
     foreach ($details as $d) {
-        update_stock($d['item_id'], $header['location_id'], -$d['quantity']);
+        update_stock($d['item_id'], $header['location_id'], -$d['quantity'], (int)$header['company_id']);
         // remove mutation logs for this reference
         $dm = $db->prepare('DELETE FROM mutations WHERE reference_type=? AND reference_id=?');
         $dm->bind_param('si', ...['stock_in', $id]);

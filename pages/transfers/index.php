@@ -7,14 +7,27 @@ require_perm('transfers.view');
 $db = getDB();
 
 $page = max(1,req_int('page',1));
-$cq=$db->query('SELECT COUNT(*) FROM transfers'); $total=$cq->fetch_row()[0];
+$active_cid = current_company_id();
+
+$cq=$db->prepare('SELECT COUNT(*) FROM transfers WHERE from_company_id=? OR to_company_id=?');
+$cq->bind_param('ii', $active_cid, $active_cid);
+$cq->execute();
+$total=$cq->get_result()->fetch_row()[0];
+$cq->close();
+
 $pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
 $st=$db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name,
+    fc.code AS from_comp_code, tc.code AS to_comp_code,
     (SELECT COUNT(*) FROM transfer_details d WHERE d.transfer_id=t.id) AS item_count
-    FROM transfers t JOIN locations fl ON fl.id=t.from_location_id
-    JOIN locations tl ON tl.id=t.to_location_id JOIN users u ON u.id=t.user_id
+    FROM transfers t 
+    JOIN locations fl ON fl.id=t.from_location_id
+    JOIN locations tl ON tl.id=t.to_location_id 
+    JOIN users u ON u.id=t.user_id
+    LEFT JOIN companies fc ON fc.id=t.from_company_id
+    LEFT JOIN companies tc ON tc.id=t.to_company_id
+    WHERE t.from_company_id=? OR t.to_company_id=?
     ORDER BY t.id DESC LIMIT ? OFFSET ?');
-$st->bind_param('ii',$limit,$offset); $st->execute();
+$st->bind_param('iiii', $active_cid, $active_cid, $limit, $offset); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
@@ -38,8 +51,18 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
         <tr>
           <td><code class="small"><?=htmlspecialchars($r['reference_no'])?></code></td>
           <td class="small"><?=tgl($r['transaction_date'])?></td>
-          <td class="small"><?=htmlspecialchars($r['from_loc'])?></td>
-          <td class="small"><?=htmlspecialchars($r['to_loc'])?></td>
+          <td class="small">
+            <?=htmlspecialchars($r['from_loc'])?>
+            <?php if ($r['from_company_id'] != $r['to_company_id']): ?>
+              <span class="badge bg-secondary-subtle text-secondary border ms-1"><?=htmlspecialchars($r['from_comp_code'] ?? '')?></span>
+            <?php endif; ?>
+          </td>
+          <td class="small">
+            <?=htmlspecialchars($r['to_loc'])?>
+            <?php if ($r['from_company_id'] != $r['to_company_id']): ?>
+              <span class="badge bg-primary-subtle text-primary border ms-1"><?=htmlspecialchars($r['to_comp_code'] ?? '')?></span>
+            <?php endif; ?>
+          </td>
           <td class="text-center"><span class="badge bg-info-subtle text-info"><?=$r['item_count']?> item</span></td>
           <td class="small text-muted"><?=htmlspecialchars($r['user_name'])?></td>
           <td class="text-center">

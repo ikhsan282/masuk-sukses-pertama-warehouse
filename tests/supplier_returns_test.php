@@ -21,7 +21,7 @@ define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'db_msp_warehouse');
-define('DB_PORT', 13306);
+define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
 define('DB_CHARSET', 'utf8mb4');
 
 function getDB(): mysqli {

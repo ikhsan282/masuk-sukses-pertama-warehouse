@@ -22,12 +22,13 @@ date_default_timezone_set(APP_TIMEZONE);
 
 // Start session once
 if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
     session_set_cookie_params([
         'lifetime' => SESSION_LIFETIME,
         'path'     => '/',
-        'secure'   => true, // requires HTTPS // set true on HTTPS
+        'secure'   => $is_https,
         'httponly' => true,
-        'samesite' => 'Strict',
+        'samesite' => 'Lax',
     ]);
     session_start();
 }

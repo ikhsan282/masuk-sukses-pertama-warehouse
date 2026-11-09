@@ -68,26 +68,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ── Dynamic item rows (stock-in / stock-out) ─────────────
+  // ── Dynamic item rows (stock-in / stock-out / transfers / adjustments) ──
   const addRowBtn = document.getElementById('addItemRow');
   const itemsBody = document.getElementById('itemsBody');
 
   addRowBtn?.addEventListener('click', () => {
-    const idx   = itemsBody.querySelectorAll('tr').length;
-    const first = itemsBody.querySelector('tr');
+    const rows = itemsBody.querySelectorAll('tr');
+    const first = rows[0];
     if (!first) return;
+    const idx = rows.length;
     const clone = first.cloneNode(true);
-    // Update name attributes with new index
+
+    // Remove any cloned TomSelect UI wrappers so only the raw select remains
+    clone.querySelectorAll('.ts-wrapper').forEach(w => w.remove());
+
+    // Update name attributes with new index and reset form values
     clone.querySelectorAll('[name]').forEach(el => {
-      el.name  = el.name.replace(/\[\d+\]/, `[${idx}]`);
-      el.value = '';
+      el.name = el.name.replace(/\[\d+\]/, `[${idx}]`);
+      if (el.classList.contains('item-qty')) {
+        el.value = '1';
+      } else if (el.classList.contains('sys-qty') || el.classList.contains('phy-qty')) {
+        el.value = '0';
+      } else if (el.tagName === 'SELECT') {
+        el.selectedIndex = 0;
+        el.value = '';
+      } else {
+        el.value = '';
+      }
     });
-    // Destroy old Tom Select on cloned element and reinitialize
+
+    // Reset adjustment difference display if present
+    const diffEl = clone.querySelector('.diff-display');
+    if (diffEl) {
+      diffEl.value = '0';
+      diffEl.classList.remove('text-danger', 'text-success');
+      diffEl.classList.add('text-muted');
+    }
+
+    // Clean up classes/attributes on the select element before reinitializing
     const sel = clone.querySelector('.ts-select');
-    if (sel?.tomselect) sel.tomselect.destroy();
-    clone.querySelector('.remove-row')?.addEventListener('click', removeRow);
+    if (sel) {
+      sel.style.display = '';
+      sel.removeAttribute('tabindex');
+      sel.classList.remove('tomselected', 'ts-hidden-accessible');
+      sel.value = '';
+    }
+
     itemsBody.appendChild(clone);
-    // Initialize Tom Select on new row
+
+    // Initialize Tom Select on the clean new row
     if (sel && window.TomSelect) {
       new TomSelect(sel, {
         allowEmptyOption: true,
@@ -95,28 +124,30 @@ document.addEventListener('DOMContentLoaded', () => {
         placeholder: sel.querySelector('option[value=""]')?.textContent || 'Pilih...'
       });
     }
+
+    calcTotal();
   });
 
-  function removeRow(e) {
+  // Delegated row removal
+  itemsBody?.addEventListener('click', e => {
+    const btn = e.target.closest('.remove-row');
+    if (!btn) return;
     const rows = itemsBody.querySelectorAll('tr');
     if (rows.length <= 1) return;
-    const row = e.target.closest('tr');
+    const row = btn.closest('tr');
     const sel = row?.querySelector('.ts-select');
     if (sel?.tomselect) sel.tomselect.destroy();
     row.remove();
-  }
-
-  itemsBody?.querySelectorAll('.remove-row').forEach(btn => {
-    btn.addEventListener('click', removeRow);
+    calcTotal();
   });
 
   // ── Adjustment difference calculation ─────────────────────
   document.addEventListener('input', e => {
-    if (e.target.matches('.phy-qty')) {
+    if (e.target.matches('.phy-qty, .sys-qty')) {
       const row = e.target.closest('tr');
       if (!row) return;
       const sys = parseFloat(row.querySelector('.sys-qty')?.value) || 0;
-      const phy = parseFloat(e.target.value) || 0;
+      const phy = parseFloat(row.querySelector('.phy-qty')?.value) || 0;
       const diff = phy - sys;
       const diffEl = row.querySelector('.diff-display');
       if (diffEl) {
@@ -131,6 +162,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Live stock total calculation ─────────────────────────
   document.addEventListener('input', e => {
+    if (e.target.matches('.item-qty, .item-price')) calcTotal();
+  });
+  document.addEventListener('change', e => {
     if (e.target.matches('.item-qty, .item-price')) calcTotal();
   });
 
@@ -193,8 +227,8 @@ document.addEventListener('DOMContentLoaded', () => {
           scanTarget.tomselect.refreshOptions(false);
         } else {
           scanTarget.value = option.value;
-          scanTarget.dispatchEvent(new Event('change', { bubbles: true }));
         }
+        scanTarget.dispatchEvent(new Event('change', { bubbles: true }));
         stopScanner(true);
       },
       () => {}

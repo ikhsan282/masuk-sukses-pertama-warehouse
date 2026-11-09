@@ -28,29 +28,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (empty($valid_items)) $errors[] = 'Tambahkan minimal 1 barang dengan kuantitas > 0.';
 
-    // Check available stock per item at the selected source location.
+    $company_id = req_int('company_id') ?: current_company_id();
+
+    // Check available stock per item at the selected source location for this company.
     if (empty($errors)) {
         try {
-            assert_location_stock_available($db, $location_id, $valid_items);
+            assert_location_stock_available($db, $location_id, $valid_items, $company_id);
         } catch (RuntimeException $e) {
             $errors[] = htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
         }
     }
 
     if (empty($errors)) {
-        $ref_no  = generate_ref('SO-');
+        $ref_no  = generate_ref('SO-', $company_id);
         $user_id = current_user()['id'];
         $db->begin_transaction();
         try {
-            $st = $db->prepare('INSERT INTO stock_out (reference_no,location_id,user_id,recipient,purpose,notes,transaction_date) VALUES (?,?,?,?,?,?,?)');
-            $st->bind_param('siissss',$ref_no,$location_id,$user_id,$recipient,$purpose,$notes,$trans_date);
+            $st = $db->prepare('INSERT INTO stock_out (reference_no,company_id,location_id,user_id,recipient,purpose,notes,transaction_date) VALUES (?,?,?,?,?,?,?,?)');
+            $st->bind_param('siiissss',$ref_no,$company_id,$location_id,$user_id,$recipient,$purpose,$notes,$trans_date);
             $st->execute(); $so_id = $db->insert_id; $st->close();
 
             $st2 = $db->prepare('INSERT INTO stock_out_details (stock_out_id,item_id,quantity,sell_price) VALUES (?,?,?,?)');
             foreach ($valid_items as [$iid,$qty,$sp]) {
                 $st2->bind_param('iiid',$so_id,$iid,$qty,$sp); $st2->execute();
-                update_stock($iid,$location_id,-$qty);
-                log_mutation($iid,$location_id,'out',$qty,$ref_no,'stock_out',$so_id,$user_id,$notes);
+                update_stock($iid,$location_id,-$qty, $company_id);
+                log_mutation($iid,$location_id,'out',$qty,$ref_no,'stock_out',$so_id,$user_id,$notes, $company_id);
             }
             $st2->close();
             $db->commit();
@@ -62,8 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$active_cid = current_company_id();
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id = $active_cid) ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
 $page_title='Tambah Barang Keluar'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header">

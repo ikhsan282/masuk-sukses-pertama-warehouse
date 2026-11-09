@@ -5,9 +5,16 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('purchase_orders.view');
 $db = getDB();
 $id = req_int('id');
-$st = $db->prepare('SELECT po.*,s.name supplier_name,s.phone,s.email,l.name location_name,l.code location_code,u.name user_name,r.name received_name,a.name approved_name
- FROM purchase_orders po JOIN suppliers s ON s.id=po.supplier_id JOIN locations l ON l.id=po.location_id JOIN users u ON u.id=po.user_id
- LEFT JOIN users r ON r.id=po.received_by LEFT JOIN users a ON a.id=po.approved_by WHERE po.id=?');
+$st = $db->prepare('SELECT po.*,s.name supplier_name,s.phone,s.email,l.name location_name,l.code location_code,u.name user_name,r.name received_name,a.name approved_name,
+ c.name company_name, c.code company_code
+ FROM purchase_orders po 
+ JOIN suppliers s ON s.id=po.supplier_id 
+ JOIN locations l ON l.id=po.location_id 
+ JOIN users u ON u.id=po.user_id
+ LEFT JOIN companies c ON c.id=po.company_id
+ LEFT JOIN users r ON r.id=po.received_by 
+ LEFT JOIN users a ON a.id=po.approved_by 
+ WHERE po.id=?');
 $st->bind_param('i', $id);
 $st->execute();
 $po = $st->get_result()->fetch_assoc();
@@ -58,7 +65,11 @@ include __DIR__ . '/../../includes/header.php';
       <div class="card-body">
         <table class="table table-sm table-borderless mb-0">
           <tr>
-            <td class="text-muted small" style="width:40%">Status</td>
+            <td class="text-muted small" style="width:40%">Perusahaan</td>
+            <td><strong>[<?= htmlspecialchars($po['company_code'] ?? 'MSP') ?>]</strong> <?= htmlspecialchars($po['company_name'] ?? 'PT Masuk Sukses Pertama') ?></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Status</td>
             <td><span class="badge bg-<?= $status_color ?>"><?= $status_label ?></span></td>
           </tr>
           <tr>

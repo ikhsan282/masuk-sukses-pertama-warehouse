@@ -9,10 +9,11 @@ $db = getDB();
 $search = req_str('q');
 $cat_filter = req_int('category_id');
 $page = max(1, req_int('page', 1));
+$active_cid = current_company_id();
 
-$where_parts = ['i.is_active=1'];
-$params = [];
-$types  = '';
+$where_parts = ['i.is_active=1', '(i.company_id IS NULL OR i.company_id=?)'];
+$params = [&$active_cid];
+$types  = 'i';
 if ($search)     { $where_parts[] = '(i.name LIKE ? OR i.code LIKE ?)'; $like="%$search%"; $params[]=&$like; $params[]=&$like; $types.='ss'; }
 if ($cat_filter) { $where_parts[] = 'i.category_id=?'; $params[]=&$cat_filter; $types.='i'; }
 $where = 'WHERE ' . implode(' AND ', $where_parts);
@@ -27,11 +28,13 @@ $types2 = $types.'ii';
 $p2 = $params; $p2[]=&$limit; $p2[]=&$offset;
 
 $st = $db->prepare("SELECT i.*, c.name AS cat_name, u.abbreviation AS unit_abbr,
+    comp.code AS comp_code,
     COALESCE(SUM(s.quantity),0) AS total_stock
     FROM items i
     JOIN categories c ON c.id=i.category_id
     JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id
+    LEFT JOIN companies comp ON comp.id=i.company_id
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$active_cid
     $where GROUP BY i.id ORDER BY i.code LIMIT ? OFFSET ?");
 $st->bind_param($types2, ...$p2);
 $st->execute();
@@ -99,7 +102,14 @@ include __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
           </td>
           <td><code class="small"><?= htmlspecialchars($r['code']) ?></code></td>
-          <td class="fw-semibold"><?= htmlspecialchars($r['name']) ?></td>
+          <td>
+            <div class="fw-semibold"><?= htmlspecialchars($r['name']) ?></div>
+            <?php if (empty($r['company_id'])): ?>
+              <span class="badge bg-info-subtle text-info border" style="font-size:0.65rem;">🌐 Global</span>
+            <?php else: ?>
+              <span class="badge bg-secondary-subtle text-secondary border" style="font-size:0.65rem;">🏢 <?= htmlspecialchars($r['comp_code'] ?? 'PT') ?></span>
+            <?php endif; ?>
+          </td>
           <td class="small"><?= htmlspecialchars($r['cat_name']) ?></td>
           <td class="small"><?= htmlspecialchars($r['unit_abbr']) ?></td>
           <td class="text-end">

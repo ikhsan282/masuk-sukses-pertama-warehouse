@@ -29,8 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         $user_id = current_user()['id'];
+        $company_id = req_int('company_id') ?: current_company_id();
         try {
-            $return_id = create_supplier_return($db, $supplier_id, $location_id, $user_id, $trans_date, $reason, $notes, $valid_items);
+            $return_id = create_supplier_return($db, $supplier_id, $location_id, $user_id, $trans_date, $reason, $notes, $valid_items, $company_id);
             $st = $db->prepare('SELECT reference_no FROM supplier_returns WHERE id=?');
             $st->bind_param('i', $return_id); $st->execute();
             $st->bind_result($ref_no); $st->fetch(); $st->close();
@@ -42,9 +43,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$active_cid = current_company_id();
 $suppliers = $db->query('SELECT id,code,name FROM suppliers WHERE is_active=1 ORDER BY name')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$active_cid) ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
 $page_title='Buat Retur Supplier'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header">

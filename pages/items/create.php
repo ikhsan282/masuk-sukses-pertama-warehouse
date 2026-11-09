@@ -33,9 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($errors)) {
-        $st = $db->prepare('INSERT INTO items (code,name,category_id,unit_id,min_stock,buy_price,sell_price,description,image)
-            VALUES (?,?,?,?,?,?,?,?,?)');
-        $st->bind_param('ssiiiddss', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image);
+        $comp_id = req_int('company_id');
+        $comp_id_val = $comp_id > 0 ? $comp_id : null;
+        $st = $db->prepare('INSERT INTO items (code,name,category_id,unit_id,min_stock,buy_price,sell_price,description,image,company_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?)');
+        $st->bind_param('ssiiiddssi', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image,$comp_id_val);
         if ($st->execute()) {
             set_flash('success', "Barang <strong>" . htmlspecialchars($name) . "</strong> berhasil ditambahkan.");
             redirect(APP_URL . '/pages/items/index.php');
@@ -48,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $categories = $db->query('SELECT id,name FROM categories ORDER BY name')->fetch_all(MYSQLI_ASSOC);
 $units      = $db->query('SELECT id,name,abbreviation FROM units ORDER BY name')->fetch_all(MYSQLI_ASSOC);
+$all_companies = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
 $page_title = 'Tambah Barang';
 include __DIR__ . '/../../includes/header.php';
 ?>
@@ -81,6 +84,18 @@ include __DIR__ . '/../../includes/header.php';
           <label class="form-label small fw-semibold required">Nama Barang</label>
           <input type="text" name="name" class="form-control"
             value="<?= htmlspecialchars(req_str('name')) ?>" required maxlength="150">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Cakupan Kepemilikan (PT)</label>
+          <select name="company_id" class="form-select">
+            <option value="">🌐 Global (Bisa dipakai seluruh PT / Holding)</option>
+            <?php foreach ($all_companies as $c): ?>
+            <option value="<?= $c['id'] ?>" <?= req_int('company_id', current_company_id()) == $c['id'] && !$c['is_holding'] ? 'selected' : '' ?>>
+              🏢 Khusus [<?= htmlspecialchars($c['code']) ?>] <?= htmlspecialchars($c['name']) ?>
+            </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text">Pilih 'Global' jika barang dipakai bersama oleh grup, atau pilih PT spesifik jika barang milik eksklusif anak PT.</div>
         </div>
         <div class="col-md-6">
           <label class="form-label small fw-semibold required">Kategori</label>

@@ -11,8 +11,10 @@ $loc_filter = req_int('location_id');
 $cat_filter = req_int('category_id');
 $show       = req_str('show'); // all | low | zero
 $page       = max(1, req_int('page', 1));
+$cf         = resolve_company_filter('company_id');
+$comp_in    = $cf['sql_in'];
 
-$where_parts = ['i.is_active=1'];
+$where_parts = ['i.is_active=1', "(i.company_id IS NULL OR i.company_id IN ($comp_in))"];
 $params=[]; $types='';
 if ($cat_filter) { $where_parts[]='i.category_id=?'; $params[]=&$cat_filter; $types.='i'; }
 if ($loc_filter) { $where_parts[]='s.location_id=?';  $params[]=&$loc_filter; $types.='i'; }
@@ -24,7 +26,7 @@ if ($show==='zero') $having = 'HAVING total_stock = 0';
 
 $cq=$db->prepare("SELECT COUNT(*) FROM (
     SELECT i.id, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock
-    FROM items i LEFT JOIN stock s ON s.item_id=i.id $where GROUP BY i.id, i.min_stock $having) sub");
+    FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where GROUP BY i.id, i.min_stock $having) sub");
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
@@ -36,14 +38,14 @@ $st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_
     COALESCE(SUM(s.quantity),0) AS total_stock,
     COALESCE(SUM(s.quantity)*i.buy_price,0) AS stock_value
     FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id $where
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where
     GROUP BY i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price, c.name, u.abbreviation $having ORDER BY i.code LIMIT ? OFFSET ?");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $categories = $db->query('SELECT id,name FROM categories ORDER BY name')->fetch_all(MYSQLI_ASSOC);
 $locations  = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$total_value= $db->query('SELECT COALESCE(SUM(s.quantity*i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id')->fetch_row()[0];
+$total_value= $db->query("SELECT COALESCE(SUM(s.quantity*i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id IN ($comp_in)")->fetch_row()[0];
 
 $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
 ?>
@@ -51,18 +53,19 @@ $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
   <h4><i class="bi bi-bar-chart-line me-2 text-primary"></i>Laporan Stok Barang</h4>
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="stock_export.php?<?=http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="stock_export.php?<?=http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
+    <a href="stock_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
+    <a href="stock_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 
 <div class="alert alert-info py-2 small">
-  <i class="bi bi-info-circle me-1"></i>Total nilai inventori saat ini: <strong><?=idr((float)$total_value)?></strong>
+  <i class="bi bi-info-circle me-1"></i>Cakupan: <strong><?=htmlspecialchars($cf['label'])?></strong> &bull; Total nilai inventori saat ini: <strong><?=idr((float)$total_value)?></strong>
 </div>
 
 <div class="card table-card">
   <div class="card-header bg-white py-2">
     <form class="d-flex flex-wrap gap-2" method="GET">
+      <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <select name="category_id" class="form-select form-select-sm" style="max-width:180px">
         <option value="">Semua Kategori</option>
         <?php foreach($categories as $c): ?>
@@ -113,7 +116,7 @@ $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
   </div>
   <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
     <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> barang</small>
-    <?=pagination_html($pag,'?'.http_build_query(['location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show]).'&page=%d')?>
+    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show]).'&page=%d')?>
   </div>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

@@ -23,7 +23,7 @@ define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'db_msp_warehouse_test');
-define('DB_PORT', 13306);
+define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
 define('DB_CHARSET', 'utf8mb4');
 
 // Override config constants
@@ -74,6 +74,12 @@ $db = getDB();
 function q(mysqli $db, string $sql): void { if ($db->query($sql) === false) die("SQL failed: {$db->error}\n$sql\n"); }
 
 // Seed test data
+q($db, "SET FOREIGN_KEY_CHECKS=0");
+q($db, "TRUNCATE stock");
+q($db, "TRUNCATE items");
+q($db, "TRUNCATE suppliers");
+q($db, "SET FOREIGN_KEY_CHECKS=1");
+
 q($db, "INSERT INTO suppliers (id,code,name,is_active) VALUES (100,'SUP001','Test Supplier',1)");
 q($db, "INSERT INTO items (id,code,name,category_id,unit_id,min_stock,buy_price,is_active) VALUES 
     (100,'ITEM001','Low Stock Item',1,1,10,1000,1),

@@ -13,7 +13,7 @@ function test(string $name, bool $ok, string $reason = ''): void {
 function generate_ref(string $prefix): string { return $prefix . bin2hex(random_bytes(5)); }
 
 const HOST = '127.0.0.1';
-const PORT = 13306;
+define('PORT', (int)(getenv('DB_PORT') ?: 3306));
 const TEST_DB = 'db_msp_warehouse_test_opname';
 $boot = new mysqli(HOST, 'root', '', '', PORT);
 $boot->query('DROP DATABASE IF EXISTS `' . TEST_DB . '`');

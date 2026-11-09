@@ -7,12 +7,26 @@ require_perm('transfers.view');
 $db = getDB();
 $id = req_int('id');
 
-$st = $db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name
-    FROM transfers t JOIN locations fl ON fl.id=t.from_location_id
-    JOIN locations tl ON tl.id=t.to_location_id JOIN users u ON u.id=t.user_id WHERE t.id=?');
+$st = $db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name,
+    c.code AS from_comp_code, c.name AS company_name, c.address AS company_address, c.phone AS company_phone, c.npwp AS company_npwp,
+    tc.code AS to_comp_code, tc.name AS to_comp_name
+    FROM transfers t 
+    JOIN locations fl ON fl.id=t.from_location_id
+    JOIN locations tl ON tl.id=t.to_location_id 
+    JOIN users u ON u.id=t.user_id 
+    LEFT JOIN companies c ON c.id=t.from_company_id
+    LEFT JOIN companies tc ON tc.id=t.to_company_id
+    WHERE t.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header=$st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/transfers/index.php'); }
+
+$comp_name = $header['company_name'] ?: COMPANY_NAME;
+$comp_addr = $header['company_address'] ?: COMPANY_ADDRESS;
+$comp_info = [];
+if (!empty($header['company_phone'])) $comp_info[] = 'Telp: ' . $header['company_phone'];
+if (!empty($header['company_npwp']))  $comp_info[] = 'NPWP: ' . $header['company_npwp'];
+$comp_extra = $comp_info ? ' | ' . implode(' | ', $comp_info) : '';
 
 $st2=$db->prepare('SELECT d.*, i.code AS item_code, i.name AS item_name, u.abbreviation
     FROM transfer_details d JOIN items i ON i.id=d.item_id JOIN units u ON u.id=i.unit_id WHERE d.transfer_id=?');
@@ -62,15 +76,18 @@ th{font-weight:600;text-align:left}
 <button class="print-btn no-print" onclick="window.print()">🖨️ Cetak</button>
 <div class="container">
   <div class="header">
-    <h2>SURAT TRANSFER BARANG</h2>
-    <p><?=COMPANY_NAME?> | <?=COMPANY_ADDRESS?></p>
+    <h2><?= htmlspecialchars($comp_name) ?></h2>
+    <p><?= htmlspecialchars($comp_addr) ?><?= htmlspecialchars($comp_extra) ?></p>
+    <h3 style="margin-top:10px;font-size:15px;text-decoration:underline">
+      <?= ($header['from_company_id'] ?? 1) != ($header['to_company_id'] ?? 1) ? 'SURAT TRANSFER BARANG ANTAR-PT' : 'SURAT TRANSFER BARANG' ?>
+    </h3>
   </div>
   
   <div class="info-box">
     <div class="info-row"><span class="info-label">No. Referensi</span><span class="info-value fw-bold"><?=htmlspecialchars($header['reference_no'])?></span></div>
     <div class="info-row"><span class="info-label">Tanggal</span><span class="info-value"><?=tgl($header['transaction_date'])?></span></div>
-    <div class="info-row"><span class="info-label">Dari Lokasi</span><span class="info-value"><span class="highlight fw-bold"><?=htmlspecialchars($header['from_loc'])?></span></span></div>
-    <div class="info-row"><span class="info-label">Ke Lokasi</span><span class="info-value"><span class="highlight fw-bold"><?=htmlspecialchars($header['to_loc'])?></span></span></div>
+    <div class="info-row"><span class="info-label">PT & Lokasi Asal</span><span class="info-value"><span class="highlight fw-bold"><?=htmlspecialchars(($header['from_comp_code'] ?? 'MSP') . ' — ' . $header['from_loc'])?></span></span></div>
+    <div class="info-row"><span class="info-label">PT & Lokasi Tujuan</span><span class="info-value"><span class="highlight fw-bold"><?=htmlspecialchars(($header['to_comp_code'] ?? 'MSP') . ' — ' . $header['to_loc'])?></span></span></div>
     <div class="info-row"><span class="info-label">Dicatat Oleh</span><span class="info-value"><?=htmlspecialchars($header['user_name'])?></span></div>
   </div>
   

@@ -17,13 +17,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (strtotime($date) > strtotime(date('Y-m-d'))) $errors[] = 'Tanggal opname tidak boleh di masa depan.';
 
     if (empty($errors)) {
-        $new_id = create_stock_opname($db, $date, current_user()['id'], $notes);
+        $cid = current_company_id();
+        $new_id = create_stock_opname($db, $date, current_user()['id'], $notes, $cid);
         set_flash('success', 'Sesi stock opname dibuat. Lanjutkan penginputan hasil hitung.');
         redirect(APP_URL . '/pages/stock-opname/count.php?id=' . $new_id);
     }
 }
 
-$recent = $db->query("SELECT session_id,opname_date,status FROM stock_opname WHERE status='draft' ORDER BY session_id DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
+$cid = current_company_id();
+$recent = $db->query("SELECT session_id,opname_date,status FROM stock_opname WHERE status='draft' AND company_id=$cid ORDER BY session_id DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
 
 $page_title = 'Buat Sesi Stock Opname';
 include __DIR__ . '/../../includes/header.php';

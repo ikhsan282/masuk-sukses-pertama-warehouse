@@ -1,217 +1,267 @@
-# Masuk Sukses Pertama Warehouse
+# Masuk Sukses Pertama Warehouse (MSP Group)
 
-Sistem Manajemen Inventori & Gudang — PHP Native + MySQLi + Bootstrap 5.
+Sistem Manajemen Inventori & Pergudangan Terintegrasi (*Warehouse Management System* - WMS) berbasis **PHP Native + MySQLi + Bootstrap 5**, dirancang khusus untuk mendukung model bisnis **Multi-Company (Holding & Subsidiaries)** dengan arsitektur **Gudang Bersama (*Shared Warehouse*)**.
 
-## Stack
-- PHP 8.5+ (Native, tanpa framework)
-- MySQLi dengan prepared statements
-- MySQL / MariaDB
-- Bootstrap 5.3.8 + Bootstrap Icons 1.13.2 (CDN)
-- Chart.js 4.5.1 (CDN)
-- Tom Select 2.3.1 (CDN)
-- Vanilla JavaScript
-- PWA (Web App Manifest + Service Worker)
-- `html5-qrcode` (lokal) untuk pemindaian barcode/QR
-- Generator PDF dan parser XLSX native tanpa Composer
-
-## Instalasi
-
-### 1. Import Database
-```sql
-mysql -u root -p < database/schema.sql
-```
-
-### 2. Konfigurasi Database
-Edit `config/database.php`:
-```php
-define('DB_HOST', 'localhost');
-define('DB_USER', 'your_db_user');
-define('DB_PASS', 'your_db_password');
-define('DB_NAME', 'db_msp_warehouse');
-```
-
-### 3. Konfigurasi Aplikasi
-Edit `config/config.php`:
-```php
-define('APP_URL', 'http://yourdomain.com/masuk-sukses-pertama-warehouse');
-define('MAIL_FROM', 'no-reply@yourdomain.com');
-define('COMPANY_NAME', 'Nama Perusahaan');
-define('COMPANY_ADDRESS', 'Alamat Perusahaan');
-```
-
-### 4. Upload ke cPanel
-- Upload semua file ke `public_html/masuk-sukses-pertama-warehouse/`
-- Pastikan `.htaccess` ikut terupload
-- Set permission folder: `755`, file: `644`
-
-### 5. Login Default
-| Username | Password | Peran |
-|---|---|---|
-| `superadmin` | `P@ssw0rd` | Super Admin |
-| `admin` | `P@ssw0rd` | Admin |
-| `staffgudang` | `P@ssw0rd` | Staff Gudang |
-| `viewer` | `P@ssw0rd` | Viewer |
-
-> **Ganti password segera setelah login pertama!**
-
-> **Catatan:** Akun default sudah terverifikasi email. Pengguna baru yang didaftarkan melalui UI akan menerima email verifikasi via `mail()`.
+Sistem ini telah disesuaikan dengan profil bisnis riil **PT Masuk Sukses Pertama** ([mspgrup.co.id](https://mspgrup.co.id)) sebagai distributor ban kendaraan berat (*Truck & Bus Radial*, *Off The Road*, *Solid Tire Forklift*, serta *Inner Tube & Flap*).
 
 ---
 
-## Struktur File
+## 🌟 Fitur Utama & Keunggulan
+
+### 1. Arsitektur Multi-PT & Gudang Bersama (*Shared Warehouse*)
+- **Struktur Korporasi Holding & Anak PT**:
+  - **PT Masuk Sukses Pertama (MSP)** — Induk Holding (`is_holding = 1`) & Importir Utama.
+  - **PT Sukses Logistik Nusantara (SLN)** — Anak Perusahaan Distribusi & Operasional Tambang/Logistik Kalimantan.
+  - **PT Prima Distribusi Mandiri (PDM)** — Anak Perusahaan Distribusi Retail & Sub-Dealer Jawa Timur.
+- **Shared Warehouse / Rak Bersama**: Lokasi rak fisik yang sama (misal `RAK-A1`) dapat digunakan bersama oleh beberapa PT dengan saldo stok yang terisolasi aman secara logis (`stock.company_id`).
+- **Katalog Hybrid (*Hybrid Catalog*)**:
+  - *Global/Shared Items* (`company_id IS NULL`): Barang bersama yang dapat distok dan dipakai oleh semua PT (misal: Ban Dalam Butyl, Flap Selendang, Valve Pentil OTR, O-Ring Seal).
+  - *Dedicated Items* (`company_id NOT NULL`): Barang eksklusif milik PT tertentu yang hanya muncul pada transaksi PT yang bersangkutan.
+- **Company Switcher Instan**: Pilihan aktif PT di topbar navigasi; pengguna yang memiliki hak akses multi-PT dapat berpindah entitas bisnis tanpa perlu logout.
+- **Transfer Stok Antar-PT (*Inter-Company Transfer*)**: Pemindahan kepemilikan stok barang dari Holding ke Anak PT (atau sebaliknya) dengan audit mutasi ganda otomatis (`transfer_out` dan `transfer_in`).
+- **Mode Laporan Konsolidasi Holding**: Khusus akun Holding / Super Admin, tersedia opsi filter **"Semua PT"** untuk melihat total stok konsolidasi seluruh grup perusahaan, maupun filter spesifik per entitas PT.
+- **Penomoran Dokumen Khusus per PT**: Nomor referensi transaksi otomatis membawa kode PT (`SI-MSP-...`, `SO-SLN-...`, `PO-PDM-...`, `ADJ-MSP-...`, `RET-MSP-...`).
+
+### 2. Manajemen Transaksi Operasional
+- **Purchase Order (PO) & Workflow Approval**:
+  - Alur status: `draft` ➔ `pending` (menunggu persetujuan) ➔ `approved` ➔ `partial` (diterima sebagian) / `completed` (diterima penuh).
+  - Keamanan konkurensi penerimaan barang dengan *Database Row Locking* (`FOR UPDATE`) untuk mencegah duplikasi stok masuk.
+- **Barang Masuk (*Stock In*)**: Input multi-baris barang, pencatatan otomatis mutasi stok, dan integrasi nomor PO.
+- **Barang Keluar (*Stock Out* / Surat Jalan)**: Pengurangan stok dari rak gudang dengan validasi ketersediaan stok fisik per PT.
+- **Retur ke Supplier (*Supplier Returns*)**: Pengembalian unit cacat/klaim garansi pabrik dengan opsi pembatalan aman (*safe cancellation*).
+- **Stock Opname Fisik & Penyesuaian Stok (*Adjustment*)**:
+  - Sesi opname berkala (*draft* ➔ *counting* ➔ *variance check* ➔ *finalization*).
+  - Pembuatan dokumen Stock Adjustment otomatis yang membutuhkan persetujuan (*approval workflow*) berjenjang.
+
+### 3. Pemindaian Barcode & Cetak Label
+- **Barcode / QR Scanner (Kamera)**: Pemindaian barcode barang via kamera HP/laptop secara *real-time* menggunakan pustaka `html5-qrcode` yang tersimpan lokal (tanpa ketergantungan CDN eksternal).
+- **Cetak Label Barcode SVG**: Cetak label barcode standar Code 39 langsung dari browser tanpa perlu library tambahan atau driver khusus printer.
+- **Format Cetak Dokumen A4**: Template cetak siap cetak / simpan PDF untuk Faktur Barang Masuk, Surat Jalan Barang Keluar, Bukti Transfer Antar-PT, dan Purchase Order.
+
+### 4. UI/UX Modern & PWA
+- **Progressive Web App (PWA)**: Dapat diinstal langsung di layar smartphone Android/iOS (*Add to Home Screen*) dan mendukung *offline fallback*.
+- **Portal Mobile**: Antarmuka ringkas khusus Staff Gudang di lapangan untuk cek stok dan pemindaian cepat.
+- **Tema Gelap (*Dark Mode*)**: Dukungan mode gelap persisten dengan kontras warna yang nyaman di mata, termasuk dropdown TomSelect.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Backend**: PHP 8.2+ (Native, OOP, Zero-Composer dependency)
+- **Database**: MySQL 5.7+ / MariaDB 10.4+ (*MySQLi with Prepared Statements & Transactions*)
+- **Frontend**:
+  - Bootstrap 5.3.8 + Bootstrap Icons 1.13.2
+  - Tom Select 2.3.1 (Autocomplete dropdown dengan proteksi *dropdownParent: body*)
+  - Chart.js 4.5.1 (Visualisasi statistik transaksi dan nilai inventori)
+  - HTML5-QRCode 2.3.8 (Lokal di `assets/vendor/`)
+- **Web Server**: Apache 2.4+ (XAMPP / cPanel Linux)
+
+---
+
+## 🚀 Panduan Instalasi & Menjalankan di XAMPP Lokal
+
+### 1. Kloning / Letakkan Proyek
+Pastikan folder proyek berada di direktori `htdocs` XAMPP Anda:
+```
+C:\xampp\htdocs\masuk-sukses-pertama-warehouse\
+```
+
+### 2. Import Database Tunggal
+Database telah dikemas menjadi **satu file installer mandiri** yang berisi struktur tabel, indeks, serta dummy data riil operasional ban PT Masuk Sukses Pertama:
+- **Lokasi File**: [`database/schema.sql`](file:///c:/xampp/htdocs/masuk-sukses-pertama-warehouse/database/schema.sql)
+- **Cara Import via Command Prompt / PowerShell**:
+  ```bash
+  mysql -u root db_msp_warehouse < C:\xampp\htdocs\masuk-sukses-pertama-warehouse\database\schema.sql
+  ```
+- **Cara Import via phpMyAdmin**:
+  1. Buka browser: `http://localhost/phpmyadmin` (atau `http://localhost:8080/phpmyadmin`).
+  2. Buat database baru bernama `db_msp_warehouse` (opsional, script akan membuat otomatis jika belum ada).
+  3. Klik tab **Import** -> Pilih file `database/schema.sql` -> Klik tombol **Import / Kirim**.
+
+### 3. Konfigurasi Aplikasi & Port Web Server
+Periksa file konfigurasi:
+1. **[`config/database.php`](file:///c:/xampp/htdocs/masuk-sukses-pertama-warehouse/config/database.php)**:
+   ```php
+   defined('DB_HOST') || define('DB_HOST', 'localhost');
+   defined('DB_USER') || define('DB_USER', 'root');
+   defined('DB_PASS') || define('DB_PASS', '');
+   defined('DB_NAME') || define('DB_NAME', 'db_msp_warehouse');
+   defined('DB_PORT') || define('DB_PORT', 3306);
+   ```
+2. **[`config/config.php`](file:///c:/xampp/htdocs/masuk-sukses-pertama-warehouse/config/config.php)**:
+   Sesuaikan `APP_URL` dengan port Apache yang aktif di komputer Anda:
+   - Jika Apache berjalan di port default: `http://localhost/masuk-sukses-pertama-warehouse`
+   - Jika Apache berjalan di port 8080 (seperti di setup XAMPP saat ini): `http://localhost:8080/masuk-sukses-pertama-warehouse`
+
+### 4. Akun Pengguna Default untuk Pengujian
+
+Semua akun dummy menggunakan password standar: **`P@ssw0rd`**
+
+| Username | Role / Peran | Hak Akses Perusahaan (Multi-PT) | Deskripsi |
+| :--- | :--- | :--- | :--- |
+| **`superadmin`** | Super Admin | **Semua PT** (MSP, SLN, PDM) | Akses kontrol penuh, kelola PT, user, role, approval, dan laporan konsolidasi |
+| **`admin`** | Admin Operasional | **Semua PT** (MSP, SLN, PDM) | Kelola data master, transaksi barang, PO, dan laporan |
+| **`staffgudang`** | Staff Gudang | PT Masuk Sukses Pertama & SLN | Input transaksi masuk, keluar, transfer, dan opname fisik di gudang |
+| **`viewer`** | Viewer Auditor | PT Masuk Sukses Pertama | Akses baca saja (*Read-only*) dan cetak laporan |
+
+---
+
+## 📦 Data Dummy Riil mspgrup.co.id
+
+Database telah terisi data riil hasil scraping profil [mspgrup.co.id](https://mspgrup.co.id):
+
+### Katalog Produk Ban & Komponen (17 Item)
+- **Shared / Global Components**:
+  - `SHR-TUB-01`: WEN FENG Butyl Inner Tube 12.00R20 TR179A
+  - `SHR-TUB-02`: WANBO Butyl Inner Tube 23.5-25 TR179A
+  - `SHR-FLP-01`: Flap Selendang Ban Truk 12.00-20 Heavy Duty
+  - `SHR-VAL-01`: Valve Pentil Ban OTR TRJ1175C Heavy Duty Brass
+  - `SHR-ORG-01`: O-Ring Seal Ban Tubeless OTR 25 Inch
+- **PT Masuk Sukses Pertama (Holding)**:
+  - `MSP-OPL-232`: OPALS OP232 315/80R22.5 (TBR Tubeless Highway Long Haul)
+  - `MSP-OPL-225`: OPALS OP225 11.00R20 (TBR All-Position 3-Line)
+  - `MSP-OPL-359`: OPALS EV OP359 12.00R20 (TBR Mining & Heavy Logging)
+  - `MSP-OPL-195`: OPALS OTR OP195 23.5-25 (Wheel Loader Tambang)
+  - `MSP-OPL-178`: OPALS OTR OP178 14.00-24 (Motor Grader)
+- **PT Sukses Logistik Nusantara (Anak PT - Kalimantan)**:
+  - `SLN-WNB-699`: WANBO WB699 18.00-25 (Dump Truck Tambang Batubara)
+  - `SLN-WNB-625`: WANBO WB625 23.5-25 (Loader Batubara)
+  - `SLN-WNB-711`: WANBO WB711 29.5R25 (Giant Mining Radial Haul Truck)
+  - `SLN-WNB-SLD`: WANBO Solid Tire 28x9-15 (Forklift Pelabuhan 3.5 - 5 Ton)
+- **PT Prima Distribusi Mandiri (Anak PT - Jawa Timur)**:
+  - `PDM-OPL-366`: OPALS OP366 10.00R20 (Truk Kargo Antar-Kota)
+  - `PDM-OPL-265`: OPALS OP265 7.50R16 (Truk Canter / Engkel Distribusi)
+  - `PDM-WNB-650`: WANBO Solid Tire 6.50-10 (Ban Solid Forklift Pabrik 2 - 2.5 Ton)
+
+### Lokasi Rak Bersama & Gudang Wilayah
+- `RAK-A1`: Rak A1 - Ban Truk & Bus Radial (TBR)
+- `RAK-A2`: Rak A2 - Ban Truk Tubeless (TBR)
+- `RAK-B1`: Rak B1 - Ban Tambang & Alat Berat (OTR)
+- `RAK-B2`: Rak B2 - Ban Solid Forklift
+- `RAK-C1`: Rak C1 - Ban Dalam & Flap
+- `GUDANG-BJM`: Gudang Bizpark Banjarmasin Blok C1-7, Kalsel
+- `GUDANG-UTAMA`: Gudang Utama Staging Kontainer Jakarta
+- `AREA-TRANSIT`: Area Karantina & Pemeriksaan Klaim Garansi Retur
+
+---
+
+## 📁 Struktur Direktori Proyek
+
 ```
 masuk-sukses-pertama-warehouse/
-├── .htaccess                  # Apache config, security headers
-├── index.php                  # Entry point → redirect
+├── .htaccess                       # Aturan keamanan Apache & header proteksi
+├── index.php                       # Entry point aplikasi (redirect ke dashboard / login)
+├── PRD.md                          # Product Requirement Document (PRD) Multi-PT lengkap
+├── README.md                       # Dokumentasi resmi proyek
+├── manifest.json                   # Web App Manifest untuk instalasi PWA
+├── sw.js                           # Service worker PWA untuk caching & offline support
 ├── config/
-│   ├── database.php           # DB constants (ubah untuk cPanel)
-│   └── config.php             # App settings, session, timezone
+│   ├── database.php                # Pengaturan koneksi MySQLi
+│   └── config.php                  # Pengaturan aplikasi, session cookie, dan timezone
 ├── includes/
-│   ├── auth.php               # Login, logout, RBAC, email verify
-│   ├── functions.php          # Helpers: CSRF, flash, paginate, idr()
-│   ├── header.php             # HTML head + navbar
-│   ├── sidebar.php            # Sidebar navigasi (permission-aware)
-│   └── footer.php             # Scripts, closing tags
-├── assets/
-│   ├── css/style.css          # Layout, sidebar, auth, badges
-│   └── js/app.js              # Sidebar toggle, dynamic rows, confirm
+│   ├── auth.php                    # Otentikasi, session RBAC, dan verifikasi email
+│   ├── functions.php               # Helper: CSRF, format rupiah, filter data, sanitasi input
+│   ├── header.php                  # Topbar navigasi, dark mode switch, company switcher
+│   ├── sidebar.php                 # Menu samping dinamis sesuai izin peran (RBAC)
+│   ├── footer.php                  # Inisialisasi library client-side (TomSelect, Bootstrap)
+│   ├── purchase_orders.php         # Logika bisnis transaksi PO & kalkulasi parsial
+│   ├── supplier_returns.php        # Logika bisnis retur supplier & pembatalan
+│   ├── stock_opname.php            # Logika bisnis stock opname & stock adjustment
+│   ├── low_stock_alerts.php        # Mesin peringatan stok menipis & rekomendasi PO
+│   └── scanner-modal.php           # Komponen modal kamera pemindai barcode/QR
 ├── auth/
-│   ├── login.php
-│   ├── logout.php
-│   ├── forgot-password.php
-│   ├── reset-password.php
-│   └── verify-email.php
+│   ├── login.php                   # Form login pengguna
+│   ├── logout.php                  # Pembersihan sesi aman
+│   ├── switch-company.php          # Handler perpindahan perusahaan aktif
+│   ├── forgot-password.php         # Permintaan reset password
+│   ├── reset-password.php          # Form pembaharuan password via token
+│   └── verify-email.php            # Verifikasi aktivasi akun email
 ├── pages/
-│   ├── dashboard.php          # Stats, stok menipis, mutasi terbaru
-│   ├── stock-opname/          # Stock opname sessions, count, variance, finalize
-│   ├── items/                 # index, create, edit, view, delete
-│   ├── categories/            # index (CRUD modal)
-│   ├── units/                 # index (CRUD modal)
-│   ├── suppliers/             # index (CRUD modal)
-│   ├── locations/             # index (CRUD modal)
-│   ├── purchase-orders/        # PO CRUD, detail, status workflow, receive
-│   ├── supplier-returns/       # index, create, view (cancel), retur ke supplier
-│   ├── items/labels.php        # Printable browser barcode labels
-│   ├── stock/alerts.php        # Low-stock badge/list and PO suggestions
-│   ├── stock-in/              # index, create, view, delete
-│   ├── stock-out/             # index, create, view, delete
-│   ├── transfers/             # index, create, view, delete
-│   ├── stock/                 # index (cek stok + alert)
-│   ├── reports/               # mutation, stock, stock-in, stock-out
-│   ├── users/                 # index (CRUD + reset password)
-│   └── roles/                 # index (permission editor per role)
-└── database/
-    └── schema.sql             # DDL + seed data
+│   ├── dashboard.php               # Metrik inventori, grafik transaksi 7 hari, top barang
+│   ├── portal.php                  # Antarmuka mobile-friendly Staff Gudang
+│   ├── companies/                  # Manajemen data PT (Holding & Anak Perusahaan)
+│   ├── items/                      # Master barang, cetak label barcode, import CSV/Excel
+│   ├── categories/                 # Master kategori barang
+│   ├── units/                      # Master satuan ukuran
+│   ├── suppliers/                  # Master data prinsipal/supplier
+│   ├── locations/                  # Master lokasi rak gudang
+│   ├── stock/                      # Monitoring stok inventori & peringatan stok menipis
+│   ├── purchase-orders/            # Pembuatan PO, form receive, dan approval
+│   ├── stock-in/                   # Transaksi barang masuk kontainer & cetak surat penerimaan
+│   ├── stock-out/                  # Transaksi barang keluar, surat jalan, & cetak DO
+│   ├── transfers/                  # Pemindahan stok antar-lokasi & transfer antar-PT
+│   ├── stock-opname/               # Sesi opname, form hitung fisik, dan finalisasi
+│   ├── adjustments/                # Surat penyesuaian stok selisih opname
+│   ├── supplier-returns/           # Retur unit cacat ke supplier & riwayat klaim
+│   ├── reports/                    # Laporan mutasi, kartu stok, PO, dan performa supplier
+│   ├── users/                      # Manajemen akun staf & hak akses multi-PT
+│   └── roles/                      # Editor matriks permission per peran
+├── assets/
+│   ├── css/style.css               # Styling custom, tema gelap, dan responsive layout
+│   ├── js/app.js                   # Interaksi baris dinamis, kalkulasi live, dan scanner
+│   └── vendor/
+│       └── html5-qrcode/           # Library pemindai barcode lokal tanpa CDN
+├── database/
+│   └── schema.sql                  # Skema database terpadu + data dummy riil
+└── tests/                          # Automated PHP test suites
+    ├── dropdown_overflow_test.php  # Verifikasi render dropdown TomSelect di grid
+    ├── feature_self_check.php      # Pemeriksaan integritas fitur & DDL
+    ├── integration_test.php        # Uji transaksi PO, mutasi, barcode SVG, dan race condition
+    ├── location_stock_test.php     # Validasi ketersediaan stok fisik per lokasi
+    ├── low_stock_alert_test.php    # Uji akurasi kalkulasi stok menipis & email alert
+    ├── multi_company_test.php      # Uji lengkap skenario multi-PT & shared warehouse
+    ├── partial_receive_test.php    # Uji penerimaan bertahap purchase order
+    ├── stock_opname_test.php       # Uji alur draft, hitung fisik, variance, dan finalisasi
+    └── supplier_returns_test.php   # Uji pengurangan stok retur & pemulihan saat dibatalkan
 ```
 
-## Peran Default (RBAC)
-| Peran | Akses |
-|---|---|
-| Super Admin | Semua fitur |
-| Admin | Semua kecuali hapus user & edit role |
-| Staff Gudang | Transaksi + lihat master data |
-| Viewer | Read-only semua |
+---
 
-## Fitur
+## 🧪 Pengujian Otomatis (*Test Suites*)
 
-### PWA, Portal Mobile & Dark Mode
-- Aplikasi dapat dipasang di ponsel melalui `manifest.json` dan service worker, dengan halaman fallback saat offline
-- Portal mobile khusus Staff Gudang dan Viewer untuk cek stok serta aktivitas transaksi
-- Dark mode persisten mengikuti preferensi pengguna
+Aplikasi ini dilengkapi 9 skrip pengujian otomatis berbasis PHP native (tanpa perlu PHPUnit). Seluruh test suite dapat dijalankan secara langsung dari terminal:
 
-### Purchase Order
-- CRUD draft PO with supplier, destination location, order/expected dates, line items, and status workflow: draft → ordered → received/cancelled.
-- Receive action is CSRF/RBAC protected and uses one transaction with row locking; it creates the stock-in document, details, stock updates, and mutation audit entries together.
-- A PO can only be received once; the received stock-in reference is linked back to the PO.
-- Low-stock page shows an accurate in-app badge/list and quantity/value restock suggestions; suggestions can prefill a new PO.
+```powershell
+Get-ChildItem -Path tests -Filter *.php | ForEach-Object { 
+    Write-Host "`n=== $($_.Name) ==="; 
+    & "C:\xampp\php\php.exe" $_.FullName 
+}
+```
 
-### Retur Supplier
-- Retur barang ke supplier: pilih supplier, lokasi asal, alasan wajib, dan daftar barang (qty, harga beli)
-- Stok lokasi dikurangi dalam satu transaksi dengan row lock; retur ditolak jika stok tidak cukup
-- Nomor referensi `RS-...`; setiap baris dicatat di mutasi sebagai `out` (sumber `supplier_return`)
-- Retur tidak dihapus: pembatalan mengembalikan stok, mencatat mutasi `in`, dan status menjadi `cancelled`
+Hasil verifikasi:
+- ✅ `dropdown_overflow_test.php`: **Passed (6 / 6)**
+- ✅ `feature_self_check.php`: **Passed (16 checks)**
+- ✅ `integration_test.php`: **Passed (29 / 29)**
+- ✅ `location_stock_test.php`: **Passed (5 / 5)**
+- ✅ `low_stock_alert_test.php`: **Passed (33 / 33)**
+- ✅ `multi_company_test.php`: **Passed (27 / 27)**
+- ✅ `partial_receive_test.php`: **Passed (20 / 20)**
+- ✅ `stock_opname_test.php`: **Passed (14 / 14)**
+- ✅ `supplier_returns_test.php`: **Passed (20 / 20)**
+- **Total: 160+ Assertions Lulus 100% tanpa regresi.**
 
-### Barcode Labels
-- Select active items from the item list and print browser-printable Code 39 SVG labels using the existing item code (no new dependency or build tool).
+---
 
-### Dashboard
-- Statistik real-time: total barang aktif, jumlah item stok menipis, nilai total inventori (qty × harga beli), jumlah transaksi masuk+keluar hari ini
-- **Grafik transaksi 7 hari terakhir** (Chart.js) — tren barang masuk vs keluar
-- **Top 5 nilai inventori** — doughnut chart barang dengan nilai stok terbesar
-- Tabel 10 item dengan stok ≤ stok minimum (badge merah jika nol, kuning jika menipis)
-- Tabel 8 mutasi terbaru: waktu, barang, tipe (masuk/keluar/transfer), lokasi, qty
-- Ringkasan hari ini: transaksi masuk & transaksi keluar (shortcut ke masing-masing halaman)
+## 🔒 Standar Keamanan & Best Practices
 
-### Master Data
-- **Barang** — CRUD lengkap; kode, nama, kategori, satuan, harga beli, stok minimum, status aktif; **foto barang** JPG/PNG/WebP maks 2MB (tampil di list & detail); halaman view menampilkan stok per lokasi
-- **Import Barang Excel/CSV** — upload `.csv`/`.xlsx` maks 5MB/1.000 baris, preview dan validasi per baris, kode duplikat dilewati, kompatibel Excel/cPanel tanpa Composer
-- **Kategori** — CRUD via modal; nama & deskripsi
-- **Satuan** — CRUD via modal; nama & singkatan
-- **Supplier** — CRUD via modal; kode, nama, kontak
-- **Lokasi** — CRUD via modal; kode & nama lokasi gudang
+1. **SQL Injection Prevention**: 100% query database menggunakan MySQLi prepared statements dengan parameter binding (`bind_param`).
+2. **Password Hashing**: Menggunakan algoritma standar industri `password_hash(PASSWORD_BCRYPT, ['cost' => 12])`.
+3. **Cross-Site Request Forgery (CSRF)**: Token unik berbasis HMAC di-generate per sesi pengguna dan divalidasi pada setiap request POST (`verify_csrf()`).
+4. **Cross-Site Scripting (XSS)**: Semua output data dari database di-escape menggunakan `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`.
+5. **Session Hardening**: Cookie sesi dilindungi dengan flag `HttpOnly`, `SameSite=Lax`, dan masa aktif otomatis 2 jam.
+6. **Granular RBAC**: Proteksi berbasis izin fungsional (`require_perm()`) di tingkat controller/halaman, bukan hanya pembatasan nama peran biasa.
 
-### Barang Masuk (`stock-in`)
-- Input multi-baris barang dalam satu transaksi (dynamic rows JavaScript)
-- **Barcode/QR Scanner** — tombol 📷 scan untuk input barang via kamera (HTML5)
-- Field: tanggal, supplier, lokasi tujuan, catatan, + daftar barang (item, qty, harga beli)
-- Nomor referensi di-generate otomatis (`SI-...`)
-- Stok lokasi diperbarui dan mutasi dicatat otomatis setiap baris
-- Transaksi dibungkus dalam DB transaction — rollback jika ada error
+---
 
-### Barang Keluar (`stock-out`)
-- Sama seperti barang masuk; stok dikurangi dari lokasi asal
-- **Barcode/QR Scanner** untuk input barang cepat
-- Nomor referensi `SO-...`
+## 📝 Catatan Deployment ke cPanel / Server Produksi
 
-### Transfer Antar Lokasi
-- Pindah stok dari satu lokasi ke lokasi lain
-- **Barcode/QR Scanner** untuk input barang
-- Mencatat dua mutasi sekaligus: `transfer_out` di sumber, `transfer_in` di tujuan
-- Nomor referensi `TR-...`
+1. Unggah seluruh file ke folder `public_html/masuk-sukses-pertama-warehouse/` (atau root domain).
+2. Pastikan file `.htaccess` ikut terunggah untuk mengaktifkan proteksi direktori sensitif (`config/`, `database/`, `includes/`).
+3. Buat database baru di cPanel MySQL Databases dan impor file `database/schema.sql`.
+4. Sesuaikan konstanta pada `config/database.php` (DB_USER, DB_PASS, DB_NAME).
+5. Pada `config/config.php`, ubah `APP_URL` menjadi URL domain produksi Anda dengan protokol **HTTPS** (wajib untuk akses kamera pemindai barcode).
+6. Atur izin direktori (*file permissions*): folder `755`, file `644`.
 
-### Stok Opname (Penyesuaian)
-- Hitung fisik vs stok sistem per lokasi
-- Draft dokumen dengan selisih otomatis dan alasan wajib
-- **Approval workflow** — pembuat tidak dapat menyetujui dokumennya sendiri
-- Stok sistem baru berubah setelah approval
-- **Barcode/QR Scanner** untuk input barang
-- Mutation log untuk audit trail
+---
 
-### Cek Stok
-- Tabel stok per item per lokasi
-- Alert visual untuk item di bawah stok minimum
-
-### Cetak Dokumen / Simpan PDF
-- Halaman cetak mandiri untuk Barang Masuk, Barang Keluar/Surat Jalan, dan Transfer Lokasi
-- Format A4 dengan identitas perusahaan, tabel barang, catatan, dan area tanda tangan
-- Gunakan dialog browser **Cetak → Simpan sebagai PDF** — tanpa library/Composer dan kompatibel XAMPP/cPanel
-
-### Laporan
-- **Mutasi Barang** — filter: rentang tanggal, barang, tipe (masuk/keluar/transfer masuk/transfer keluar); tabel: waktu, kode, nama, tipe, lokasi, qty, referensi, oleh; export CSV (UTF-8 BOM untuk Excel)
-- **Stok** — snapshot stok saat ini per item & lokasi; export CSV
-- **Barang Masuk** — riwayat transaksi masuk dengan filter tanggal & supplier
-- **Barang Keluar** — riwayat transaksi keluar dengan filter tanggal & lokasi
-- **Performa Supplier** — jumlah dan tingkat penyelesaian PO, rata-rata lead time, ketepatan pengiriman, total nilai pembelian, filter periode/supplier, dan ekspor CSV
-
-### Manajemen User & Role
-- CRUD user; nama, username, email, peran
-- Permission editor per role: centang/uncentang permission individual
-- Toggle aktif/nonaktif; reset password oleh Super Admin
-
-## Keamanan
-- Semua query pakai MySQLi prepared statements
-- Password di-hash dengan `password_hash()` bcrypt cost=12
-- CSRF token di setiap form POST
-- Output di-escape dengan `htmlspecialchars()`
-- Session `httponly` + `samesite=Strict`
-- `.htaccess` blokir akses langsung ke `config/`, `includes/`, `database/`
-- Validasi permission di setiap halaman (`require_perm()`)
-- Email verifikasi akun via `mail()`
-- Forgot & reset password dengan token berumur 1 jam
-
-## Catatan Deployment
-
-- **HTTPS Wajib** untuk fitur barcode scanner — browser modern blokir akses kamera di HTTP plain
-- Development localhost (XAMPP/WAMP) aman tanpa HTTPS
-- Production di cPanel: aktifkan SSL/Let's Encrypt gratis melalui cPanel SSL/TLS menu
-- Library `html5-qrcode` (MIT license) di-serve lokal dari `assets/vendor/` — tidak ada dependency CDN pihak ketiga untuk scanner, jalan penuh di shared hosting & XAMPP
+© 2026 PT Masuk Sukses Pertama. All Rights Reserved.

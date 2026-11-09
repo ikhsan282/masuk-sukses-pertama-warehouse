@@ -8,36 +8,47 @@ require_perm('dashboard.view');
 $db = getDB();
 
 // Stats
-$total_items = $db->query('SELECT COUNT(*) FROM items WHERE is_active=1')->fetch_row()[0];
+$cid = current_company_id();
+$active_comp = current_company();
+
+$total_items = $db->query("SELECT COUNT(*) FROM items WHERE is_active=1 AND (company_id IS NULL OR company_id=$cid)")->fetch_row()[0];
 $total_suppliers = $db->query('SELECT COUNT(*) FROM suppliers WHERE is_active=1')->fetch_row()[0];
 $total_locations = $db->query('SELECT COUNT(*) FROM locations WHERE is_active=1')->fetch_row()[0];
 
 // Inventory value
-$inv_value = $db->query('SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id')->fetch_row()[0];
+$inv_value = $db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id=$cid")->fetch_row()[0];
 
 // Low stock items
-$low_stock_count = $db->query('SELECT COUNT(*) FROM (SELECT i.id FROM items i LEFT JOIN stock s ON s.item_id=i.id WHERE i.is_active=1 GROUP BY i.id,i.min_stock HAVING COALESCE(SUM(s.quantity),0)<=i.min_stock) low')->fetch_row()[0];
-$low_stock = $db->query('SELECT i.code, i.name, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock,
+$low_stock_count = $db->query("SELECT COUNT(*) FROM (
+    SELECT i.id FROM items i 
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid 
+    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
+    GROUP BY i.id,i.min_stock 
+    HAVING COALESCE(SUM(s.quantity),0)<=i.min_stock
+) low")->fetch_row()[0];
+
+$low_stock = $db->query("SELECT i.code, i.name, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock,
     GREATEST(i.min_stock*2-COALESCE(SUM(s.quantity),0),1) AS suggested_qty,
     u.abbreviation FROM items i
-    LEFT JOIN stock s ON s.item_id=i.id
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid
     LEFT JOIN units u ON u.id=i.unit_id
-    WHERE i.is_active=1
+    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid)
     GROUP BY i.id, i.min_stock, i.code, i.name, u.abbreviation HAVING total_stock <= i.min_stock
-    ORDER BY total_stock ASC LIMIT 10')->fetch_all(MYSQLI_ASSOC);
+    ORDER BY total_stock ASC LIMIT 10")->fetch_all(MYSQLI_ASSOC);
 
 // Today transactions
 $today = date('Y-m-d');
-$today_in  = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='{$today}'")->fetch_row()[0];
-$today_out = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='{$today}'")->fetch_row()[0];
+$today_in  = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='{$today}' AND company_id=$cid")->fetch_row()[0];
+$today_out = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='{$today}' AND company_id=$cid")->fetch_row()[0];
 
 // Recent mutations
-$recent = $db->query('SELECT m.created_at, m.type, m.quantity, i.name AS item_name,
+$recent = $db->query("SELECT m.created_at, m.type, m.quantity, i.name AS item_name,
     l.name AS location_name, m.reference_no
     FROM mutations m
     JOIN items i ON i.id=m.item_id
     JOIN locations l ON l.id=m.location_id
-    ORDER BY m.id DESC LIMIT 8')->fetch_all(MYSQLI_ASSOC);
+    WHERE m.company_id=$cid
+    ORDER BY m.id DESC LIMIT 8")->fetch_all(MYSQLI_ASSOC);
 
 // Chart data: last 7 days transactions
 $chart_days = [];
@@ -46,16 +57,17 @@ $chart_out = [];
 for ($i = 6; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime("-$i days"));
     $chart_days[] = date('d M', strtotime($date));
-    $in_count = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='$date'")->fetch_row()[0];
-    $out_count = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='$date'")->fetch_row()[0];
+    $in_count = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='$date' AND company_id=$cid")->fetch_row()[0];
+    $out_count = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='$date' AND company_id=$cid")->fetch_row()[0];
     $chart_in[] = (int)$in_count;
     $chart_out[] = (int)$out_count;
 }
 
 // Top items by stock value
-$top_items = $db->query('SELECT i.name, COALESCE(SUM(s.quantity * i.buy_price),0) AS value
-    FROM items i LEFT JOIN stock s ON s.item_id=i.id
-    WHERE i.is_active=1 GROUP BY i.id ORDER BY value DESC LIMIT 5')->fetch_all(MYSQLI_ASSOC);
+$top_items = $db->query("SELECT i.name, COALESCE(SUM(s.quantity * i.buy_price),0) AS value
+    FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid
+    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
+    GROUP BY i.id ORDER BY value DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
 
 $page_title = 'Dashboard';
 include __DIR__ . '/../includes/header.php';

@@ -47,13 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && req_str('action') === 'approve') {
         $up->close();
 
         // 2. Apply stock changes + mutation log
+        $adj_company_id = (int)($adj['company_id'] ?: 1);
         foreach ($details as $d) {
             $diff = (int)$d['difference'];
             if ($diff === 0) continue;
-            update_stock((int)$d['item_id'], (int)$adj['location_id'], $diff);
+            update_stock((int)$d['item_id'], (int)$adj['location_id'], $diff, $adj_company_id);
             log_mutation((int)$d['item_id'], (int)$adj['location_id'], 'adjustment', abs($diff),
                 $adj['reference_no'], 'adjustment', (int)$adj['id'], $user_id,
-                'Stok opname: ' . $d['system_qty'] . ' → ' . $d['physical_qty'] . ($d['reason'] ? ' — ' . $d['reason'] : ''));
+                'Stok opname: ' . $d['system_qty'] . ' → ' . $d['physical_qty'] . ($d['reason'] ? ' — ' . $d['reason'] : ''),
+                $adj_company_id);
         }
 
         $db->commit();

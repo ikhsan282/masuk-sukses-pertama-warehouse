@@ -32,13 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($valid_items)) $errors[] = 'Tambahkan minimal 1 barang dengan kuantitas > 0.';
 
     if (empty($errors)) {
-        $ref_no  = generate_ref('SI-');
-        $user_id = current_user()['id'];
+        $company_id = req_int('company_id') ?: current_company_id();
+        $ref_no     = generate_ref('SI-', $company_id);
+        $user_id    = current_user()['id'];
 
         $db->begin_transaction();
         try {
-            $st = $db->prepare('INSERT INTO stock_in (reference_no,supplier_id,location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?)');
-            $st->bind_param('siiiss', $ref_no,$supplier_id,$location_id,$user_id,$notes,$trans_date);
+            $st = $db->prepare('INSERT INTO stock_in (reference_no,company_id,supplier_id,location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?,?)');
+            $st->bind_param('siiiiss', $ref_no,$company_id,$supplier_id,$location_id,$user_id,$notes,$trans_date);
             $st->execute();
             $si_id = $db->insert_id;
             $st->close();
@@ -47,8 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($valid_items as [$iid,$qty,$bp]) {
                 $st2->bind_param('iiid', $si_id,$iid,$qty,$bp);
                 $st2->execute();
-                update_stock($iid, $location_id, $qty);
-                log_mutation($iid,$location_id,'in',$qty,$ref_no,'stock_in',$si_id,$user_id,$notes);
+                update_stock($iid, $location_id, $qty, $company_id);
+                log_mutation($iid,$location_id,'in',$qty,$ref_no,'stock_in',$si_id,$user_id,$notes,$company_id);
             }
             $st2->close();
             $db->commit();
@@ -61,9 +62,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$active_cid = current_company_id();
 $suppliers = $db->query('SELECT id,code,name FROM suppliers WHERE is_active=1 ORDER BY name')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id = $active_cid) ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
 $page_title = 'Tambah Barang Masuk'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header">

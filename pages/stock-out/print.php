@@ -7,11 +7,23 @@ require_perm('stock_out.view');
 $db = getDB();
 $id = req_int('id');
 
-$st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name
-    FROM stock_out so JOIN locations l ON l.id=so.location_id JOIN users u ON u.id=so.user_id WHERE so.id=?');
+$st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name,
+    c.name AS company_name, c.address AS company_address, c.phone AS company_phone, c.npwp AS company_npwp
+    FROM stock_out so 
+    JOIN locations l ON l.id=so.location_id 
+    JOIN users u ON u.id=so.user_id 
+    LEFT JOIN companies c ON c.id=so.company_id
+    WHERE so.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-out/index.php'); }
+
+$comp_name = $header['company_name'] ?: COMPANY_NAME;
+$comp_addr = $header['company_address'] ?: COMPANY_ADDRESS;
+$comp_info = [];
+if (!empty($header['company_phone'])) $comp_info[] = 'Telp: ' . $header['company_phone'];
+if (!empty($header['company_npwp']))  $comp_info[] = 'NPWP: ' . $header['company_npwp'];
+$comp_extra = $comp_info ? ' | ' . implode(' | ', $comp_info) : '';
 
 $st2 = $db->prepare('SELECT d.*, i.code AS item_code, i.name AS item_name, u.abbreviation
     FROM stock_out_details d JOIN items i ON i.id=d.item_id JOIN units u ON u.id=i.unit_id WHERE d.stock_out_id=?');
@@ -62,8 +74,9 @@ th{font-weight:600;text-align:left}
 <button class="print-btn no-print" onclick="window.print()">🖨️ Cetak</button>
 <div class="container">
   <div class="header">
-    <h2>SURAT JALAN / BUKTI PENGELUARAN BARANG</h2>
-    <p><?=COMPANY_NAME?> | <?=COMPANY_ADDRESS?></p>
+    <h2><?= htmlspecialchars($comp_name) ?></h2>
+    <p><?= htmlspecialchars($comp_addr) ?><?= htmlspecialchars($comp_extra) ?></p>
+    <h3 style="margin-top:10px;font-size:15px;text-decoration:underline">SURAT JALAN / BUKTI PENGELUARAN BARANG</h3>
   </div>
   
   <div class="info-box">

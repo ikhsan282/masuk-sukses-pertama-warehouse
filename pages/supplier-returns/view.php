@@ -22,9 +22,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel'])) {
     }
 }
 
-$st = $db->prepare('SELECT sr.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name
+$st = $db->prepare('SELECT sr.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name, c.code AS comp_code, c.name AS comp_name
     FROM supplier_returns sr JOIN suppliers s ON s.id=sr.supplier_id
-    JOIN locations l ON l.id=sr.location_id JOIN users u ON u.id=sr.user_id WHERE sr.id=?');
+    JOIN locations l ON l.id=sr.location_id JOIN users u ON u.id=sr.user_id
+    LEFT JOIN companies c ON c.id=sr.company_id WHERE sr.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/supplier-returns/index.php'); }
@@ -69,6 +70,8 @@ $page_title='Detail Retur Supplier'; include __DIR__.'/../../includes/header.php
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:40%">No. Referensi</td>
               <td><code class="fw-bold"><?=htmlspecialchars($header['reference_no'])?></code></td></tr>
+          <tr><td class="text-muted small">Perusahaan (PT)</td>
+              <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars(($header['comp_code'] ?? 'MSP') . ' — ' . ($header['comp_name'] ?? ''))?></span></td></tr>
           <tr><td class="text-muted small">Status</td>
               <td><span class="badge bg-<?=$header['status']==='completed'?'success':'secondary'?>"><?=ucfirst($header['status'])?></span></td></tr>
           <tr><td class="text-muted small">Tanggal</td><td><?=tgl($header['transaction_date'])?></td></tr>

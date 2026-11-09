@@ -11,6 +11,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.ts-select').forEach(function(el) {
+    if (el.tomselect) return;
     new TomSelect(el, {
       allowEmptyOption: true,
       dropdownParent: 'body',

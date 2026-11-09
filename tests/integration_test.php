@@ -22,7 +22,7 @@ define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'db_msp_warehouse');
-define('DB_PORT', 13306);
+define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
 define('DB_CHARSET', 'utf8mb4');
 
 function getDB(): mysqli {
@@ -53,6 +53,15 @@ $db = new mysqli(DB_HOST, DB_USER, DB_PASS, TEST_DB, DB_PORT);
 $db->set_charset(DB_CHARSET);
 function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
 function q(mysqli $db, string $sql): void { if ($db->query($sql) === false) die("SQL failed: {$db->error}\n$sql\n"); }
+
+// Clean up test tables to guarantee isolation
+q($db, "SET FOREIGN_KEY_CHECKS=0");
+q($db, "TRUNCATE stock");
+q($db, "TRUNCATE items");
+q($db, "TRUNCATE suppliers");
+q($db, "TRUNCATE purchase_order_details");
+q($db, "TRUNCATE purchase_orders");
+q($db, "SET FOREIGN_KEY_CHECKS=1");
 
 q($db, "INSERT INTO locations (id,code,name,is_active) VALUES (100,'A1','Test Location',1),(101,'B1','Second',1)");
 q($db, "INSERT INTO suppliers (id,code,name,is_active) VALUES (100,'SUP001','Test Supplier',1)");

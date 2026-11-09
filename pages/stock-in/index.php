@@ -10,9 +10,10 @@ $search = req_str('q');
 $date_from = req_str('date_from');
 $date_to   = req_str('date_to');
 $page = max(1, req_int('page', 1));
+$active_cid = current_company_id();
 
-$where_parts = ['1=1'];
-$params=[]; $types='';
+$where_parts = ['si.company_id = ?'];
+$params=[&$active_cid]; $types='i';
 if ($search)    { $where_parts[]='(si.reference_no LIKE ? OR s.name LIKE ?)'; $like="%$search%"; $params[]=&$like;$params[]=&$like;$types.='ss'; }
 if ($date_from) { $where_parts[]='si.transaction_date >= ?'; $params[]=&$date_from;$types.='s'; }
 if ($date_to)   { $where_parts[]='si.transaction_date <= ?'; $params[]=&$date_to;$types.='s'; }

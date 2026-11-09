@@ -21,8 +21,14 @@ function nav_active(string $path): string {
     </a>
     <?php endif; ?>
 
-    <?php if (can('items.view') || can('categories.view') || can('units.view') || can('suppliers.view') || can('locations.view')): ?>
+    <?php if (can('companies.view') || can('items.view') || can('categories.view') || can('units.view') || can('suppliers.view') || can('locations.view')): ?>
     <div class="sidebar-section-title sidebar-label">DATA MASTER</div>
+    <?php endif; ?>
+
+    <?php if (can('companies.view')): ?>
+    <a href="<?= APP_URL ?>/pages/companies/index.php" class="sidebar-link <?= nav_active('/companies') ?>">
+      <i class="bi bi-buildings"></i><span class="sidebar-label">Perusahaan (PT)</span>
+    </a>
     <?php endif; ?>
 
     <?php if (can('items.view')): ?>

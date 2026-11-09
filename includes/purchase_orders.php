@@ -14,12 +14,14 @@ function po_valid_items(array $item_ids, array $quantities, array $prices): arra
 function receive_purchase_order_partial(mysqli $db, int $po_id, array $receive_quantities, int $user_id): string {
     $db->begin_transaction();
     try {
-        $st = $db->prepare("SELECT reference_no,supplier_id,location_id,notes,status,approval_status FROM purchase_orders WHERE id=? FOR UPDATE");
+        $st = $db->prepare("SELECT reference_no,company_id,supplier_id,location_id,notes,status,approval_status FROM purchase_orders WHERE id=? FOR UPDATE");
         $st->bind_param('i', $po_id); $st->execute();
         $po = $st->get_result()->fetch_assoc(); $st->close();
         if (!$po) throw new RuntimeException('Purchase order tidak ditemukan.');
         if ($po['approval_status'] !== 'approved') throw new RuntimeException('Hanya PO yang sudah diapprove yang dapat diterima.');
         if (!in_array($po['status'], ['pending', 'partial'], true)) throw new RuntimeException('Purchase order sudah diproses atau belum dipesan.');
+
+        $company_id = (int)($po['company_id'] ?: 1);
 
         $detail = $db->prepare('SELECT item_id,quantity,received_quantity,buy_price FROM purchase_order_details WHERE po_id=?');
         $detail->bind_param('i', $po_id); $detail->execute();
@@ -49,21 +51,21 @@ function receive_purchase_order_partial(mysqli $db, int $po_id, array $receive_q
         $ref = 'SI-' . $po['reference_no'] . '-' . date('YmdHis') . '-' . bin2hex(random_bytes(3));
         $today = date('Y-m-d');
         $notes = trim('Penerimaan ' . $po['reference_no'] . '. ' . ($po['notes'] ?? ''));
-        $insert = $db->prepare('INSERT INTO stock_in (reference_no,supplier_id,location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?)');
-        $insert->bind_param('siiiss', $ref, $po['supplier_id'], $po['location_id'], $user_id, $notes, $today);
+        $insert = $db->prepare('INSERT INTO stock_in (reference_no,company_id,supplier_id,location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?,?)');
+        $insert->bind_param('siiiiss', $ref, $company_id, $po['supplier_id'], $po['location_id'], $user_id, $notes, $today);
         $insert->execute(); $stock_in_id = $db->insert_id; $insert->close();
 
         // Add stock and update received quantities
         $line = $db->prepare('INSERT INTO stock_in_details (stock_in_id,item_id,quantity,buy_price) VALUES (?,?,?,?)');
-        $stock = $db->prepare('INSERT INTO stock (item_id,location_id,quantity) VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)');
-        $mutation = $db->prepare("INSERT INTO mutations (item_id,location_id,type,quantity,reference_no,reference_type,reference_id,user_id,notes) VALUES (?,?,'in',?,?,'stock_in',?,?,?)");
+        $stock = $db->prepare('INSERT INTO stock (item_id,location_id,company_id,quantity) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity)');
+        $mutation = $db->prepare("INSERT INTO mutations (item_id,location_id,company_id,type,quantity,reference_no,reference_type,reference_id,user_id,notes) VALUES (?,?,?,'in',?,?,'stock_in',?,?,?)");
         $update_detail = $db->prepare('UPDATE purchase_order_details SET received_quantity=received_quantity+? WHERE po_id=? AND item_id=?');
         
         foreach ($to_receive as $item) {
             $item_id = $item['item_id']; $qty = $item['quantity']; $price = $item['buy_price'];
             $line->bind_param('iiid', $stock_in_id, $item_id, $qty, $price); $line->execute();
-            $stock->bind_param('iii', $item_id, $po['location_id'], $qty); $stock->execute();
-            $mutation->bind_param('iiisiis', $item_id, $po['location_id'], $qty, $ref, $stock_in_id, $user_id, $notes); $mutation->execute();
+            $stock->bind_param('iiii', $item_id, $po['location_id'], $company_id, $qty); $stock->execute();
+            $mutation->bind_param('iiiisiis', $item_id, $po['location_id'], $company_id, $qty, $ref, $stock_in_id, $user_id, $notes); $mutation->execute();
             $update_detail->bind_param('iii', $qty, $po_id, $item_id); $update_detail->execute();
         }
         $line->close(); $stock->close(); $mutation->close(); $update_detail->close();

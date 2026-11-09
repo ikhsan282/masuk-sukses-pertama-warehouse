@@ -8,9 +8,10 @@ $db = getDB();
 
 $id = req_int('id');
 $st = $db->prepare('SELECT si.*, s.name AS supplier_name, s.phone AS supplier_phone,
-    l.name AS location_name, u.name AS user_name
+    l.name AS location_name, u.name AS user_name, c.code AS comp_code, c.name AS comp_name
     FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id
-    JOIN locations l ON l.id=si.location_id JOIN users u ON u.id=si.user_id WHERE si.id=?');
+    JOIN locations l ON l.id=si.location_id JOIN users u ON u.id=si.user_id
+    LEFT JOIN companies c ON c.id=si.company_id WHERE si.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-in/index.php'); }
@@ -52,6 +53,8 @@ $page_title='Detail Barang Masuk'; include __DIR__.'/../../includes/header.php';
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:45%">No. Referensi</td>
               <td><code class="fw-bold"><?=htmlspecialchars($header['reference_no'])?></code></td></tr>
+          <tr><td class="text-muted small">Perusahaan (PT)</td>
+              <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars(($header['comp_code'] ?? 'MSP') . ' — ' . ($header['comp_name'] ?? ''))?></span></td></tr>
           <tr><td class="text-muted small">Tanggal</td><td><?=tgl($header['transaction_date'])?></td></tr>
           <tr><td class="text-muted small">Supplier</td><td class="fw-semibold"><?=htmlspecialchars($header['supplier_name'])?></td></tr>
           <tr><td class="text-muted small">Telepon</td><td><?=htmlspecialchars($header['supplier_phone']??'-')?></td></tr>

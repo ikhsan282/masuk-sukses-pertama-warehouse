@@ -8,7 +8,7 @@ defined('DB_HOST') || define('DB_HOST', '127.0.0.1');
 defined('DB_USER') || define('DB_USER', 'root');
 defined('DB_PASS') || define('DB_PASS', '');
 defined('DB_NAME') || define('DB_NAME', 'db_wh_location_stock_test');
-defined('DB_PORT') || define('DB_PORT', 13306);
+defined('DB_PORT') || define('DB_PORT', (int)(getenv('DB_PORT') ?: 3306));
 defined('DB_CHARSET') || define('DB_CHARSET', 'utf8mb4');
 defined('APP_NAME') || define('APP_NAME', 'Test');
 defined('MAIL_FROM') || define('MAIL_FROM', 'test@example.com');

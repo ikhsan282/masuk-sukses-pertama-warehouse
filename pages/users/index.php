@@ -12,11 +12,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = req_str('action');
 
     if ($action === 'create' && can('users.create')) {
-        $name     = req_str('name');
-        $username = req_str('username');
-        $email    = req_str('email');
-        $role_id  = req_int('role_id');
-        $password = req_str('password');
+        $name        = req_str('name');
+        $username    = req_str('username');
+        $email       = req_str('email');
+        $role_id     = req_int('role_id');
+        $password    = req_str('password');
+        $company_ids = $_POST['company_ids'] ?? [];
         if (!$name||!$username||!$email||!$role_id||!$password) {
             set_flash('error','Semua field wajib diisi.');
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -29,6 +30,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token) VALUES (?,?,?,?,?,?)');
             $st->bind_param('isssss',$role_id,$name,$username,$email,$hash,$token);
             if ($st->execute()) {
+                $new_uid = $db->insert_id;
+                // Save company access
+                if (empty($company_ids)) $company_ids = [1];
+                $uc_st = $db->prepare('INSERT IGNORE INTO user_companies (user_id, company_id, is_default) VALUES (?, ?, ?)');
+                foreach ($company_ids as $idx => $cid) {
+                    $cid = (int)$cid;
+                    if ($cid > 0) {
+                        $is_def = ($idx === 0) ? 1 : 0;
+                        $uc_st->bind_param('iii', $new_uid, $cid, $is_def);
+                        $uc_st->execute();
+                    }
+                }
+                $uc_st->close();
+
                 send_verification_email($email, $name, $token);
                 set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan. Email verifikasi dikirim.");
             } else {
@@ -39,14 +54,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'edit' && can('users.edit')) {
-        $id      = req_int('id');
-        $name    = req_str('name');
-        $role_id = req_int('role_id');
-        $active  = req_int('is_active');
+        $id          = req_int('id');
+        $name        = req_str('name');
+        $role_id     = req_int('role_id');
+        $active      = req_int('is_active');
+        $company_ids = $_POST['company_ids'] ?? [];
+
         $st = $db->prepare('UPDATE users SET name=?,role_id=?,is_active=? WHERE id=?');
         $st->bind_param('siii',$name,$role_id,$active,$id);
-        if ($st->execute()) set_flash('success','Pengguna diperbarui.');
-        else set_flash('error','Gagal memperbarui pengguna.');
+        if ($st->execute()) {
+            // Update companies
+            if (!empty($company_ids)) {
+                $db->query("DELETE FROM user_companies WHERE user_id = $id");
+                $uc_st = $db->prepare('INSERT IGNORE INTO user_companies (user_id, company_id, is_default) VALUES (?, ?, ?)');
+                foreach ($company_ids as $idx => $cid) {
+                    $cid = (int)$cid;
+                    if ($cid > 0) {
+                        $is_def = ($idx === 0) ? 1 : 0;
+                        $uc_st->bind_param('iii', $id, $cid, $is_def);
+                        $uc_st->execute();
+                    }
+                }
+                $uc_st->close();
+            }
+            set_flash('success','Pengguna diperbarui.');
+        } else {
+            set_flash('error','Gagal memperbarui pengguna.');
+        }
         $st->close();
     }
 
@@ -83,10 +117,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Fetch for edit modal
 $edit_row = null;
+$edit_user_companies = [];
 if (req_int('edit')) {
     $st = $db->prepare('SELECT id,name,username,email,role_id,is_active FROM users WHERE id=?');
     $st->bind_param('i',$_GET['edit']); $st->execute();
     $edit_row = $st->get_result()->fetch_assoc(); $st->close();
+    if ($edit_row) {
+        $c_res = $db->query("SELECT company_id FROM user_companies WHERE user_id = " . (int)$edit_row['id']);
+        while ($c_row = $c_res->fetch_row()) $edit_user_companies[] = (int)$c_row[0];
+    }
 }
 
 $search = req_str('q');
@@ -98,12 +137,21 @@ $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
 $pag=paginate($total,$page);$offset=$pag['offset'];$limit=PER_PAGE;
 $st=$db->prepare("SELECT u.id,u.name,u.username,u.email,u.is_active,u.email_verified_at,u.created_at,
-    r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id $where ORDER BY u.id DESC LIMIT ? OFFSET ?");
+    r.name AS role_name,
+    GROUP_CONCAT(c.code ORDER BY c.is_holding DESC, c.code ASC SEPARATOR ', ') AS company_codes
+    FROM users u 
+    JOIN roles r ON r.id=u.role_id 
+    LEFT JOIN user_companies uc ON uc.user_id=u.id
+    LEFT JOIN companies c ON c.id=uc.company_id
+    $where 
+    GROUP BY u.id
+    ORDER BY u.id DESC LIMIT ? OFFSET ?");
 if($search){$like="%$search%";$st->bind_param('sssii',$like,$like,$like,$limit,$offset);}
 else{$st->bind_param('ii',$limit,$offset);}
 $st->execute(); $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $roles = $db->query('SELECT id,name FROM roles ORDER BY id')->fetch_all(MYSQLI_ASSOC);
+$all_companies = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
 $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
@@ -125,11 +173,11 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
     </form>
   </div>
   <div class="table-responsive">
-    <table class="table mb-0">
-      <thead><tr><th>#</th><th>Nama</th><th>Username</th><th>Email</th><th>Peran</th><th class="text-center">Status</th><th class="text-center">Verifikasi</th><th class="text-center">Aksi</th></tr></thead>
+    <table class="table mb-0 align-middle">
+      <thead><tr><th>#</th><th>Nama</th><th>Username</th><th>Email</th><th>Peran</th><th>Akses PT</th><th class="text-center">Status</th><th class="text-center">Verifikasi</th><th class="text-center">Aksi</th></tr></thead>
       <tbody>
       <?php if(empty($rows)):?>
-        <tr><td colspan="8" class="text-center text-muted py-4">Tidak ada data</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data</td></tr>
       <?php else: foreach($rows as $i=>$r):?>
         <tr>
           <td class="small text-muted"><?=$pag['offset']+$i+1?></td>
@@ -137,6 +185,13 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
           <td><code class="small"><?=htmlspecialchars($r['username'])?></code></td>
           <td class="small"><?=htmlspecialchars($r['email'])?></td>
           <td><span class="badge bg-secondary-subtle text-secondary border"><?=htmlspecialchars($r['role_name'])?></span></td>
+          <td>
+            <?php if (!empty($r['company_codes'])): ?>
+              <span class="badge bg-success-subtle text-success border"><?= htmlspecialchars($r['company_codes']) ?></span>
+            <?php else: ?>
+              <span class="text-muted small">Semua / Default</span>
+            <?php endif; ?>
+          </td>
           <td class="text-center"><?=$r['is_active']?'<span class="badge badge-ok">Aktif</span>':'<span class="badge badge-zero">Nonaktif</span>'?></td>
           <td class="text-center"><?=$r['email_verified_at']?'<span class="badge badge-ok"><i class="bi bi-check"></i></span>':'<span class="badge badge-zero">Belum</span>'?></td>
           <td class="text-center">
@@ -189,6 +244,20 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
             </div>
             <div class="col-12"><label class="form-label small fw-semibold required">Kata Sandi (min. 8 karakter)</label>
               <input type="password" name="password" class="form-control" required minlength="8"></div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Akses Perusahaan (PT)</label>
+              <div class="border rounded p-2 bg-light">
+                <?php foreach ($all_companies as $c): ?>
+                <div class="form-check form-check-inline me-3">
+                  <input class="form-check-input" type="checkbox" name="company_ids[]" value="<?=$c['id']?>" id="comp_<?=$c['id']?>" <?=$c['is_holding']?'checked':''?>>
+                  <label class="form-check-label small" for="comp_<?=$c['id']?>">
+                    [<?=htmlspecialchars($c['code'])?>] <?=htmlspecialchars($c['name'])?> <?=$c['is_holding']?'(Holding)':''?>
+                  </label>
+                </div>
+                <?php endforeach; ?>
+              </div>
+              <small class="text-muted">Pilih satu atau beberapa PT yang dapat diakses oleh pengguna ini.</small>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -229,6 +298,19 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
                 <option value="1" <?=$edit_row['is_active']?'selected':''?>>Aktif</option>
                 <option value="0" <?=!$edit_row['is_active']?'selected':''?>>Nonaktif</option>
               </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Akses Perusahaan (PT)</label>
+              <div class="border rounded p-2 bg-light">
+                <?php foreach ($all_companies as $c): ?>
+                <div class="form-check form-check-inline me-3">
+                  <input class="form-check-input" type="checkbox" name="company_ids[]" value="<?=$c['id']?>" id="edit_comp_<?=$c['id']?>" <?=in_array((int)$c['id'], $edit_user_companies, true)?'checked':''?>>
+                  <label class="form-check-label small" for="edit_comp_<?=$c['id']?>">
+                    [<?=htmlspecialchars($c['code'])?>] <?=htmlspecialchars($c['name'])?> <?=$c['is_holding']?'(Holding)':''?>
+                  </label>
+                </div>
+                <?php endforeach; ?>
+              </div>
             </div>
           </div>
           <hr>

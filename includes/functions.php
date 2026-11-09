@@ -103,9 +103,43 @@ function pagination_html(array $p, string $url_pattern): string {
     return $html;
 }
 
-// Auto-generate reference number
-function generate_ref(string $prefix): string {
-    return $prefix . date('Ymd') . strtoupper(substr(uniqid(), -5));
+// Resolve company code by ID (or active company) for document numbering
+function company_code(?int $company_id = null): string {
+    static $cache = [];
+    if ($company_id === null && function_exists('current_company')) {
+        $cc = current_company();
+        if (!empty($cc['code'])) {
+            if (!empty($cc['id'])) $cache[(int)$cc['id']] = strtoupper($cc['code']);
+            return strtoupper($cc['code']);
+        }
+    }
+    $cid = $company_id ?: (function_exists('current_company_id') ? current_company_id() : 1);
+    $cid = $cid ?: 1;
+    if (isset($cache[$cid])) return $cache[$cid];
+    if (function_exists('getDB')) {
+        try {
+            $db = getDB();
+            $st = $db->prepare('SELECT code FROM companies WHERE id=? LIMIT 1');
+            if ($st) {
+                $st->bind_param('i', $cid);
+                $st->execute();
+                $st->bind_result($code);
+                if ($st->fetch() && $code) {
+                    $st->close();
+                    return $cache[$cid] = strtoupper($code);
+                }
+                $st->close();
+            }
+        } catch (Throwable $e) {}
+    }
+    return $cache[$cid] = 'MSP';
+}
+
+// Auto-generate reference number per PT (e.g. SI-MSP-20261109XXXXX)
+function generate_ref(string $prefix, ?int $company_id = null): string {
+    $clean_prefix = rtrim($prefix, '-');
+    $code = company_code($company_id);
+    return $clean_prefix . '-' . $code . '-' . date('Ymd') . strtoupper(substr(uniqid(), -5));
 }
 
 // Send email (shared hosting compatible)
@@ -143,11 +177,19 @@ function req_str(string $key, string $default = ''): string {
     return isset($_REQUEST[$key]) ? trim($_REQUEST[$key]) : $default;
 }
 
-// Get total stock for an item across all locations
-function get_item_stock(int $item_id): int {
+// Get total stock for an item across all locations (filtered by company if specified or active)
+function get_item_stock(int $item_id, ?int $company_id = null): int {
     $db = getDB();
-    $st = $db->prepare('SELECT COALESCE(SUM(quantity),0) FROM stock WHERE item_id=?');
-    $st->bind_param('i', $item_id);
+    if ($company_id === null && function_exists('current_company_id')) {
+        $company_id = current_company_id();
+    }
+    if ($company_id) {
+        $st = $db->prepare('SELECT COALESCE(SUM(quantity),0) FROM stock WHERE item_id=? AND company_id=?');
+        $st->bind_param('ii', $item_id, $company_id);
+    } else {
+        $st = $db->prepare('SELECT COALESCE(SUM(quantity),0) FROM stock WHERE item_id=?');
+        $st->bind_param('i', $item_id);
+    }
     $st->execute();
     $st->bind_result($qty);
     $st->fetch();
@@ -155,24 +197,28 @@ function get_item_stock(int $item_id): int {
     return (int)$qty;
 }
 
-// Update stock (upsert)
-function update_stock(int $item_id, int $location_id, int $delta): bool {
+// Update stock (upsert with company_id)
+function update_stock(int $item_id, int $location_id, int $delta, ?int $company_id = null): bool {
     $db = getDB();
-    $st = $db->prepare('INSERT INTO stock (item_id, location_id, quantity)
-        VALUES (?,?,?) ON DUPLICATE KEY UPDATE quantity = quantity + ?');
-    $st->bind_param('iiii', $item_id, $location_id, $delta, $delta);
+    if ($company_id === null && function_exists('current_company_id')) {
+        $company_id = current_company_id();
+    }
+    $company_id = $company_id ?: 1;
+    $st = $db->prepare('INSERT INTO stock (item_id, location_id, company_id, quantity)
+        VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE quantity = quantity + ?');
+    $st->bind_param('iiiii', $item_id, $location_id, $company_id, $delta, $delta);
     $result = $st->execute();
     $st->close();
     return $result;
 }
 
 /**
- * Validate that every line can be fulfilled from one location.
+ * Validate that every line can be fulfilled from one location for a specific company.
  * $lines: list of [$item_id, $qty, $price]. Quantities for the same item are
  * summed first, so two rows of the same item cannot slip past the check.
  * Throws RuntimeException with a readable "Tersedia: N" message on failure.
  */
-function assert_location_stock_available(mysqli $db, int $location_id, array $lines): void {
+function assert_location_stock_available(mysqli $db, int $location_id, array $lines, ?int $company_id = null): void {
     $wanted = [];
     foreach ($lines as $line) {
         $item_id = (int)$line[0];
@@ -181,8 +227,13 @@ function assert_location_stock_available(mysqli $db, int $location_id, array $li
     }
     if (!$wanted) return;
 
+    if ($company_id === null && function_exists('current_company_id')) {
+        $company_id = current_company_id();
+    }
+    $company_id = $company_id ?: 1;
+
     $st = $db->prepare('SELECT COALESCE(s.quantity,0) FROM items i
-        LEFT JOIN stock s ON s.item_id = i.id AND s.location_id = ?
+        LEFT JOIN stock s ON s.item_id = i.id AND s.location_id = ? AND s.company_id = ?
         WHERE i.id = ?');
     $loc = $db->prepare('SELECT COALESCE(code,name) FROM locations WHERE id=?');
     $loc->bind_param('i', $location_id); $loc->execute();
@@ -190,7 +241,7 @@ function assert_location_stock_available(mysqli $db, int $location_id, array $li
 
     foreach ($wanted as $item_id => $qty) {
         $available = 0;
-        $st->bind_param('ii', $location_id, $item_id);
+        $st->bind_param('iii', $location_id, $company_id, $item_id);
         $st->execute();
         $st->bind_result($qty_row);
         if ($st->fetch()) $available = (int)$qty_row;
@@ -210,14 +261,18 @@ function assert_location_stock_available(mysqli $db, int $location_id, array $li
     $st->close();
 }
 
-// Log mutation
+// Log mutation with company_id
 function log_mutation(int $item_id, int $location_id, string $type, int $qty,
-    string $ref_no, string $ref_type, int $ref_id, int $user_id, string $notes = ''): void {
+    string $ref_no, string $ref_type, int $ref_id, int $user_id, string $notes = '', ?int $company_id = null): void {
     $db = getDB();
+    if ($company_id === null && function_exists('current_company_id')) {
+        $company_id = current_company_id();
+    }
+    $company_id = $company_id ?: 1;
     $st = $db->prepare('INSERT INTO mutations
-        (item_id,location_id,type,quantity,reference_no,reference_type,reference_id,user_id,notes)
-        VALUES (?,?,?,?,?,?,?,?,?)');
-    $st->bind_param('iisissiis', $item_id, $location_id, $type, $qty,
+        (item_id,location_id,company_id,type,quantity,reference_no,reference_type,reference_id,user_id,notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?)');
+    $st->bind_param('iiisissiis', $item_id, $location_id, $company_id, $type, $qty,
         $ref_no, $ref_type, $ref_id, $user_id, $notes);
     $st->execute();
     $st->close();

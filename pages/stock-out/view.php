@@ -7,9 +7,9 @@ require_perm('stock_out.view');
 $db = getDB();
 
 $id = req_int('id');
-$st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name
+$st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name, c.code AS comp_code, c.name AS comp_name
     FROM stock_out so JOIN locations l ON l.id=so.location_id
-    JOIN users u ON u.id=so.user_id WHERE so.id=?');
+    JOIN users u ON u.id=so.user_id LEFT JOIN companies c ON c.id=so.company_id WHERE so.id=?');
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-out/index.php'); }
@@ -51,6 +51,8 @@ $page_title='Detail Barang Keluar'; include __DIR__.'/../../includes/header.php'
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:40%">No. Referensi</td>
               <td><code class="fw-bold"><?=htmlspecialchars($header['reference_no'])?></code></td></tr>
+          <tr><td class="text-muted small">Perusahaan (PT)</td>
+              <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars(($header['comp_code'] ?? 'MSP') . ' — ' . ($header['comp_name'] ?? ''))?></span></td></tr>
           <tr><td class="text-muted small">Tanggal</td><td><?=tgl($header['transaction_date'])?></td></tr>
           <tr><td class="text-muted small">Lokasi Asal</td><td class="fw-semibold"><?=htmlspecialchars($header['location_name'])?></td></tr>
           <tr><td class="text-muted small">Penerima</td><td><?=htmlspecialchars($header['recipient']??'-')?></td></tr>

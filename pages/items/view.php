@@ -7,22 +7,28 @@ require_perm('items.view');
 $db = getDB();
 
 $id = req_int('id');
-$st = $db->prepare('SELECT i.*, c.name AS cat_name, u.name AS unit_name, u.abbreviation
-    FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id WHERE i.id=?');
+$comp_id = current_company_id();
+$st = $db->prepare('SELECT i.*, c.name AS cat_name, u.name AS unit_name, u.abbreviation,
+    comp.code AS comp_code, comp.name AS comp_name
+    FROM items i
+    JOIN categories c ON c.id=i.category_id
+    JOIN units u ON u.id=i.unit_id
+    LEFT JOIN companies comp ON comp.id=i.company_id
+    WHERE i.id=?');
 $st->bind_param('i', $id); $st->execute();
 $item = $st->get_result()->fetch_assoc(); $st->close();
 if (!$item) { set_flash('error','Barang tidak ditemukan.'); redirect(APP_URL.'/pages/items/index.php'); }
 
-// Stock per location
+// Stock per location (for active company)
 $stock_rows = $db->prepare('SELECT l.code, l.name, s.quantity FROM stock s
-    JOIN locations l ON l.id=s.location_id WHERE s.item_id=? AND s.quantity>0 ORDER BY l.code');
-$stock_rows->bind_param('i', $id); $stock_rows->execute();
+    JOIN locations l ON l.id=s.location_id WHERE s.item_id=? AND s.company_id=? AND s.quantity>0 ORDER BY l.code');
+$stock_rows->bind_param('ii', $id, $comp_id); $stock_rows->execute();
 $stocks = $stock_rows->get_result()->fetch_all(MYSQLI_ASSOC); $stock_rows->close();
 
-// Recent mutations
+// Recent mutations (for active company)
 $mut = $db->prepare('SELECT m.*, l.name AS loc_name FROM mutations m
-    JOIN locations l ON l.id=m.location_id WHERE m.item_id=? ORDER BY m.id DESC LIMIT 15');
-$mut->bind_param('i', $id); $mut->execute();
+    JOIN locations l ON l.id=m.location_id WHERE m.item_id=? AND m.company_id=? ORDER BY m.id DESC LIMIT 15');
+$mut->bind_param('ii', $id, $comp_id); $mut->execute();
 $mutations = $mut->get_result()->fetch_all(MYSQLI_ASSOC); $mut->close();
 
 $total_stock = array_sum(array_column($stocks, 'quantity'));
@@ -57,6 +63,13 @@ include __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:40%">Kode</td><td><code><?= htmlspecialchars($item['code']) ?></code></td></tr>
+          <tr><td class="text-muted small">Kepemilikan</td><td>
+            <?php if ($item['company_id']): ?>
+              <span class="badge bg-primary-subtle text-primary border"><?= htmlspecialchars($item['comp_code'] . ' — ' . $item['comp_name']) ?></span>
+            <?php else: ?>
+              <span class="badge bg-secondary-subtle text-secondary border">Global (Semua PT)</span>
+            <?php endif; ?>
+          </td></tr>
           <tr><td class="text-muted small">Nama</td><td class="fw-semibold"><?= htmlspecialchars($item['name']) ?></td></tr>
           <tr><td class="text-muted small">Kategori</td><td><?= htmlspecialchars($item['cat_name']) ?></td></tr>
           <tr><td class="text-muted small">Satuan</td><td><?= htmlspecialchars($item['unit_name']) ?> (<?= htmlspecialchars($item['abbreviation']) ?>)</td></tr>

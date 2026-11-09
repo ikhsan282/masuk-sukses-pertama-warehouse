@@ -7,8 +7,12 @@ require_perm('adjustments.view');
 $db = getDB();
 
 $page = max(1, req_int('page', 1));
-$cq = $db->query('SELECT COUNT(*) FROM stock_adjustments');
-$total = $cq->fetch_row()[0];
+$comp_id = current_company_id();
+$cq = $db->prepare('SELECT COUNT(*) FROM stock_adjustments WHERE company_id=?');
+$cq->bind_param('i', $comp_id);
+$cq->execute();
+$total = $cq->get_result()->fetch_row()[0];
+$cq->close();
 $pag = paginate($total, $page);
 $offset = $pag['offset'];
 $limit = PER_PAGE;
@@ -20,8 +24,9 @@ $st = $db->prepare('SELECT a.*, l.name AS loc_name, u.name AS user_name,
     JOIN locations l ON l.id=a.location_id
     JOIN users u ON u.id=a.user_id
     LEFT JOIN users au ON au.id=a.approved_by
+    WHERE a.company_id=?
     ORDER BY a.id DESC LIMIT ? OFFSET ?');
-$st->bind_param('ii', $limit, $offset);
+$st->bind_param('iii', $comp_id, $limit, $offset);
 $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
 $st->close();

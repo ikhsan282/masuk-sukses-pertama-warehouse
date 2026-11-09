@@ -8,7 +8,14 @@ $current_user = current_user();
 $page_title   = $page_title ?? APP_NAME;
 $low_stock_count = 0;
 if ($current_user && can('stock.alerts')) {
-    $low_stock_count = getDB()->query('SELECT COUNT(*) FROM (SELECT i.id FROM items i LEFT JOIN stock s ON s.item_id=i.id WHERE i.is_active=1 GROUP BY i.id, i.min_stock HAVING COALESCE(SUM(s.quantity),0) <= i.min_stock) low')->fetch_row()[0];
+    $cid = current_company_id();
+    $low_stock_count = (int)getDB()->query("SELECT COUNT(*) FROM (
+        SELECT i.id FROM items i 
+        LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid 
+        WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
+        GROUP BY i.id, i.min_stock 
+        HAVING COALESCE(SUM(s.quantity),0) <= i.min_stock
+    ) low")->fetch_row()[0];
 }
 ?><!DOCTYPE html>
 <html lang="id">
@@ -41,6 +48,43 @@ if ($current_user && can('stock.alerts')) {
       </button>
       <span class="navbar-brand fw-semibold text-primary mb-0 h6"><?= htmlspecialchars($page_title) ?></span>
       <div class="ms-auto d-flex align-items-center gap-2">
+        <?php 
+        $active_comp = current_company();
+        $u_comps = user_companies();
+        ?>
+        <?php if ($active_comp): ?>
+          <?php if (count($u_comps) > 1): ?>
+          <div class="dropdown me-1">
+            <button class="btn btn-sm btn-outline-success dropdown-toggle d-flex align-items-center gap-1 shadow-sm" data-bs-toggle="dropdown" title="Pilih Perusahaan / PT">
+              <i class="bi bi-building"></i>
+              <span class="fw-semibold text-truncate company-switch-name"><?= htmlspecialchars($active_comp['name']) ?></span>
+              <?php if (!empty($active_comp['is_holding'])): ?>
+                <span class="badge bg-success-subtle text-success border border-success-subtle ms-1 d-none d-sm-inline" style="font-size:0.65rem;">Holding</span>
+              <?php endif; ?>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+              <li><h6 class="dropdown-header"><i class="bi bi-buildings me-1"></i>Pilih Perusahaan Aktif</h6></li>
+              <?php foreach ($u_comps as $uc): ?>
+              <li>
+                <a class="dropdown-item d-flex align-items-center justify-content-between <?= (int)$uc['id'] === (int)$active_comp['id'] ? 'active' : '' ?>" 
+                   href="<?= APP_URL ?>/auth/switch-company.php?id=<?= $uc['id'] ?>">
+                  <span>
+                    <strong>[<?= htmlspecialchars($uc['code']) ?>]</strong> <?= htmlspecialchars($uc['name']) ?>
+                  </span>
+                  <?php if (!empty($uc['is_holding'])): ?>
+                    <span class="badge text-bg-light ms-2" style="font-size:0.65rem;">Holding</span>
+                  <?php endif; ?>
+                </a>
+              </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php else: ?>
+          <span class="badge text-bg-light border text-secondary d-none d-sm-inline-flex align-items-center gap-1 py-2 px-2">
+            <i class="bi bi-building text-success"></i> <?= htmlspecialchars($active_comp['name']) ?>
+          </span>
+          <?php endif; ?>
+        <?php endif; ?>
         <?php if (can('stock.alerts')): ?>
         <a class="btn btn-sm btn-outline-warning position-relative" href="<?= APP_URL ?>/pages/stock/alerts.php" title="Peringatan stok">
           <i class="bi bi-bell"></i>

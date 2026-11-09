@@ -16,9 +16,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $item_ids  = $_POST['item_id'] ?? [];
     $quantities= $_POST['quantity'] ?? [];
 
+    $from_company_id = req_int('from_company_id') ?: current_company_id();
+    $to_company_id   = req_int('to_company_id') ?: $from_company_id;
+
     if (!$from_loc)          $errors[] = 'Lokasi asal wajib dipilih.';
     if (!$to_loc)            $errors[] = 'Lokasi tujuan wajib dipilih.';
-    if ($from_loc===$to_loc) $errors[] = 'Lokasi asal dan tujuan tidak boleh sama.';
+    if ($from_loc===$to_loc && $from_company_id===$to_company_id) {
+        $errors[] = 'Lokasi asal dan tujuan tidak boleh sama pada PT yang sama.';
+    }
     if (!$trans_date)        $errors[] = 'Tanggal transaksi wajib diisi.';
 
     $valid_items = [];
@@ -28,31 +33,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (empty($valid_items)) $errors[] = 'Tambahkan minimal 1 barang.';
 
-    // Stock check at the selected source location.
+    // Stock check at the selected source location for from_company.
     if (empty($errors)) {
         try {
-            assert_location_stock_available($db, $from_loc, $valid_items);
+            assert_location_stock_available($db, $from_loc, $valid_items, $from_company_id);
         } catch (RuntimeException $e) {
             $errors[] = htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
         }
     }
 
     if (empty($errors)) {
-        $ref_no  = generate_ref('TR-');
+        $ref_no  = generate_ref('TR-', $from_company_id);
         $user_id = current_user()['id'];
         $db->begin_transaction();
         try {
-            $st=$db->prepare('INSERT INTO transfers (reference_no,from_location_id,to_location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?)');
-            $st->bind_param('siiiss',$ref_no,$from_loc,$to_loc,$user_id,$notes,$trans_date);
+            $st=$db->prepare('INSERT INTO transfers (reference_no,from_company_id,to_company_id,from_location_id,to_location_id,user_id,notes,transaction_date) VALUES (?,?,?,?,?,?,?,?)');
+            $st->bind_param('siiiiiss',$ref_no,$from_company_id,$to_company_id,$from_loc,$to_loc,$user_id,$notes,$trans_date);
             $st->execute(); $tr_id=$db->insert_id; $st->close();
 
             $st2=$db->prepare('INSERT INTO transfer_details (transfer_id,item_id,quantity) VALUES (?,?,?)');
             foreach ($valid_items as [$iid,$qty]) {
                 $st2->bind_param('iii',$tr_id,$iid,$qty); $st2->execute();
-                update_stock($iid,$from_loc,-$qty);
-                update_stock($iid,$to_loc,$qty);
-                log_mutation($iid,$from_loc,'transfer_out',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes);
-                log_mutation($iid,$to_loc,'transfer_in',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes);
+                update_stock($iid,$from_loc,-$qty, $from_company_id);
+                update_stock($iid,$to_loc,$qty, $to_company_id);
+                // If transferring across PTs, ensure the item is accessible globally if it was restricted to source PT
+                if ($from_company_id !== $to_company_id) {
+                    $db->query("UPDATE items SET company_id = NULL WHERE id = " . (int)$iid . " AND company_id IS NOT NULL");
+                }
+                log_mutation($iid,$from_loc,'transfer_out',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes, $from_company_id);
+                log_mutation($iid,$to_loc,'transfer_in',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes, $to_company_id);
             }
             $st2->close();
             $db->commit();
@@ -64,8 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$active_cid = current_company_id();
+$all_companies = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id = $active_cid) ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
 $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header">
@@ -89,6 +100,16 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
           <input type="date" name="transaction_date" class="form-control" value="<?=htmlspecialchars(req_str('transaction_date',date('Y-m-d')))?>" required>
         </div>
         <div class="mb-3">
+          <label class="form-label small fw-semibold required">PT Asal</label>
+          <select name="from_company_id" class="form-select form-select-sm" required>
+            <?php foreach (user_companies() as $uc): ?>
+            <option value="<?=$uc['id']?>" <?=(req_int('from_company_id') ?: $active_cid)==$uc['id']?'selected':''?>>
+              <?=htmlspecialchars($uc['code'])?> — <?=htmlspecialchars($uc['name'])?><?=$uc['id']==$active_cid?' (Aktif)':''?>
+            </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="mb-3">
           <label class="form-label small fw-semibold required">Lokasi Asal</label>
           <select name="from_location_id" class="form-select ts-select" required>
             <option value="">— Pilih —</option>
@@ -98,6 +119,17 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
             </option>
             <?php endforeach;?>
           </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold required">PT Tujuan</label>
+          <select name="to_company_id" class="form-select form-select-sm" required>
+            <?php foreach ($all_companies as $ac): ?>
+            <option value="<?=$ac['id']?>" <?=(req_int('to_company_id') ?: $active_cid)==$ac['id']?'selected':''?>>
+              <?=htmlspecialchars($ac['code'])?> — <?=htmlspecialchars($ac['name'])?><?=$ac['id']==$active_cid?' (PT Sama)':''?>
+            </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text small">Pilih PT yang sama untuk pindah rak biasa, atau pilih PT lain untuk transfer kepemilikan stok antar-PT.</div>
         </div>
         <div class="mb-3">
           <label class="form-label small fw-semibold required">Lokasi Tujuan</label>

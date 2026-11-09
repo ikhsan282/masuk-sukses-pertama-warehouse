@@ -12,11 +12,12 @@ $date_to    = req_str('date_to',   date('Y-m-d'));
 $item_filter= req_int('item_id');
 $type_filter= req_str('type');
 $page       = max(1, req_int('page', 1));
+$cf         = resolve_company_filter('company_id');
+$comp_in    = $cf['sql_in'];
 
-$where_parts = ['m.created_at >= ?', 'm.created_at <= ?'];
-$params = []; $types = '';
+$where_parts = ["m.company_id IN ($comp_in)", 'm.created_at >= ?', 'm.created_at <= ?'];
 $df = $date_from.' 00:00:00'; $dt = $date_to.' 23:59:59';
-$params[]=&$df; $params[]=&$dt; $types.='ss';
+$params = [&$df, &$dt]; $types = 'ss';
 if ($item_filter) { $where_parts[]='m.item_id=?'; $params[]=&$item_filter; $types.='i'; }
 if ($type_filter) { $where_parts[]='m.type=?';    $params[]=&$type_filter; $types.='s'; }
 $where='WHERE '.implode(' AND ',$where_parts);
@@ -29,28 +30,30 @@ $pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
 
 $st=$db->prepare("SELECT m.*, i.code AS item_code, i.name AS item_name,
-    u.abbreviation, l.name AS loc_name, us.name AS user_name
+    u.abbreviation, l.name AS loc_name, us.name AS user_name, comp.code AS comp_code
     FROM mutations m JOIN items i ON i.id=m.item_id JOIN units u ON u.id=i.unit_id
     JOIN locations l ON l.id=m.location_id JOIN users us ON us.id=m.user_id
+    LEFT JOIN companies comp ON comp.id=m.company_id
     $where ORDER BY m.id DESC LIMIT ? OFFSET ?");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
-$items_list = $db->query('SELECT id,code,name FROM items WHERE is_active=1 ORDER BY name')->fetch_all(MYSQLI_ASSOC);
+$items_list = $db->query("SELECT id,code,name FROM items WHERE is_active=1 AND (company_id IS NULL OR company_id IN ($comp_in)) ORDER BY name")->fetch_all(MYSQLI_ASSOC);
 $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-arrow-down-up me-2 text-primary"></i>Laporan Mutasi Barang</h4>
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="mutation_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="mutation_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
+    <a href="mutation_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
+    <a href="mutation_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 
 <div class="card table-card">
   <div class="card-header bg-white py-2">
     <form class="d-flex flex-wrap gap-2" method="GET">
+      <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
       <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
       <select name="item_id" class="form-select form-select-sm ts-select" style="max-width:200px">
@@ -73,15 +76,16 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
   </div>
   <div class="table-responsive">
     <table class="table mb-0">
-      <thead><tr><th>Waktu</th><th>Kode</th><th>Nama Barang</th><th>Tipe</th><th>Lokasi</th><th class="text-end">Qty</th><th>Referensi</th><th>Oleh</th></tr></thead>
+      <thead><tr><th>Waktu</th><th>PT</th><th>Kode</th><th>Nama Barang</th><th>Tipe</th><th>Lokasi</th><th class="text-end">Qty</th><th>Referensi</th><th>Oleh</th></tr></thead>
       <tbody>
       <?php if(empty($rows)): ?>
-        <tr><td colspan="8" class="text-center text-muted py-4">Tidak ada data</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data</td></tr>
       <?php else:
         $type_map=['in'=>['Masuk','success'],'out'=>['Keluar','danger'],'transfer_in'=>['T.Masuk','info'],'transfer_out'=>['T.Keluar','warning'],'adjustment'=>['Opname','primary']];
         foreach($rows as $r): [$lbl,$col]=$type_map[$r['type']]??['?','secondary']; ?>
         <tr>
           <td class="small text-muted"><?=date('d/m/y H:i',strtotime($r['created_at']))?></td>
+          <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars($r['comp_code'] ?? 'MSP')?></span></td>
           <td><code class="small"><?=htmlspecialchars($r['item_code'])?></code></td>
           <td class="small"><?=htmlspecialchars($r['item_name'])?></td>
           <td><span class="badge bg-<?=$col?>-subtle text-<?=$col?> border"><?=$lbl?></span></td>
@@ -96,7 +100,7 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
   </div>
   <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
     <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> mutasi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter]).'&page=%d')?>
+    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter]).'&page=%d')?>
   </div>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

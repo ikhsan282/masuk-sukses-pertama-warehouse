@@ -9,8 +9,10 @@ $db = getDB();
 $loc_filter = req_int('location_id');
 $cat_filter = req_int('category_id');
 $show       = req_str('show');
+$cf         = resolve_company_filter('company_id');
+$comp_in    = $cf['sql_in'];
 
-$where_parts = ['i.is_active=1'];
+$where_parts = ['i.is_active=1', "(i.company_id IS NULL OR i.company_id IN ($comp_in))"];
 $params=[]; $types='';
 if ($cat_filter) { $where_parts[]='i.category_id=?'; $params[]=&$cat_filter; $types.='i'; }
 if ($loc_filter) { $where_parts[]='s.location_id=?';  $params[]=&$loc_filter; $types.='i'; }
@@ -23,8 +25,9 @@ if ($show==='zero') $having = 'HAVING total_stock = 0';
 // Print-friendly HTML export
 if (req_str('format')==='print') {
 $title='Laporan Stok Barang - '.date('d/m/Y');
-$total_value = $db->query('SELECT COALESCE(SUM(s.quantity*i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id')->fetch_row()[0];
-$st=$db->prepare("SELECT i.code, i.name, c.name AS cat_name, u.abbreviation, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id LEFT JOIN stock s ON s.item_id=i.id $where GROUP BY i.id, i.code, i.name, i.min_stock, c.name, u.abbreviation $having ORDER BY i.code");
+$subtitle='Cakupan: '.$cf['label'];
+$total_value = $db->query("SELECT COALESCE(SUM(s.quantity*i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id IN ($comp_in)")->fetch_row()[0];
+$st=$db->prepare("SELECT i.code, i.name, c.name AS cat_name, u.abbreviation, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where GROUP BY i.id, i.code, i.name, i.min_stock, c.name, u.abbreviation $having ORDER BY i.code");
 if($types)$st->bind_param($types,...$params);
 $st->execute(); $rs=$st->get_result();
 header('Content-Type: text/html; charset=UTF-8');
@@ -47,7 +50,7 @@ fputcsv($out, ['Kode','Nama Barang','Kategori','Satuan','Stok','Stok Min','Statu
 $st=$db->prepare("SELECT i.code, i.name, c.name AS cat_name, u.abbreviation, i.min_stock, i.buy_price,
     COALESCE(SUM(s.quantity),0) AS total_stock, COALESCE(SUM(s.quantity)*i.buy_price,0) AS stock_value
     FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id $where
+    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where
     GROUP BY i.id, i.code, i.name, i.min_stock, i.buy_price, c.name, u.abbreviation $having ORDER BY i.code");
 if($types)$st->bind_param($types,...$params);
 $st->execute(); $rs=$st->get_result();

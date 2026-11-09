@@ -11,10 +11,11 @@ $date_from  = req_str('date_from', date('Y-m-01'));
 $date_to    = req_str('date_to',   date('Y-m-d'));
 $loc_filter = req_int('location_id');
 $page       = max(1, req_int('page', 1));
+$cf         = resolve_company_filter('company_id');
+$comp_in    = $cf['sql_in'];
 
-$where_parts=['so.transaction_date >= ?','so.transaction_date <= ?'];
-$params=[]; $types='';
-$params[]=&$date_from; $params[]=&$date_to; $types.='ss';
+$where_parts=["so.company_id IN ($comp_in)", 'so.transaction_date >= ?','so.transaction_date <= ?'];
+$params=[&$date_from, &$date_to]; $types='ss';
 if($loc_filter){$where_parts[]='so.location_id=?';$params[]=&$loc_filter;$types.='i';}
 $where='WHERE '.implode(' AND ',$where_parts);
 
@@ -25,11 +26,12 @@ $pag=paginate($total,$page);$offset=$pag['offset'];$limit=PER_PAGE;
 $t2=$types.'ii';$p2=$params;$p2[]=&$limit;$p2[]=&$offset;
 
 $st=$db->prepare("SELECT so.id, so.reference_no, so.transaction_date, so.recipient, so.purpose,
-    l.name AS location_name, u.name AS user_name,
+    l.name AS location_name, u.name AS user_name, comp.code AS comp_code,
     (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
     (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
     FROM stock_out so JOIN locations l ON l.id=so.location_id
-    JOIN users u ON u.id=so.user_id $where ORDER BY so.transaction_date DESC, so.id DESC LIMIT ? OFFSET ?");
+    JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
+    $where ORDER BY so.transaction_date DESC, so.id DESC LIMIT ? OFFSET ?");
 $st->bind_param($t2,...$p2);$st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC);$st->close();
 
@@ -44,18 +46,18 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
   <h4><i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>Laporan Barang Keluar</h4>
   <div class="btn-group btn-group-sm">
     <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="stock-out_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="stock-out_export.php?<?=http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
+    <a href="stock-out_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
+    <a href="stock-out_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
   </div>
 </div>
 
 <div class="row g-3 mb-3">
   <div class="col-md-6"><div class="card p-3 border-start border-4 border-danger">
-    <div class="small text-muted">Total Qty Keluar (Periode)</div>
+    <div class="small text-muted">Total Qty Keluar (<?=htmlspecialchars($cf['label'])?>)</div>
     <div class="fs-4 fw-bold"><?=number_format($period_qty)?> unit</div>
   </div></div>
   <div class="col-md-6"><div class="card p-3 border-start border-4 border-warning">
-    <div class="small text-muted">Total Transaksi (Periode)</div>
+    <div class="small text-muted">Total Transaksi (<?=htmlspecialchars($cf['label'])?>)</div>
     <div class="fs-4 fw-bold"><?=$total?> transaksi</div>
   </div></div>
 </div>
@@ -63,6 +65,7 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
 <div class="card table-card">
   <div class="card-header bg-white py-2">
     <form class="d-flex flex-wrap gap-2" method="GET">
+      <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
       <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
       <select name="location_id" class="form-select form-select-sm ts-select" style="max-width:180px">
@@ -77,16 +80,17 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
   </div>
   <div class="table-responsive">
     <table class="table mb-0">
-      <thead><tr><th>#</th><th>Referensi</th><th>Tanggal</th><th>Lokasi</th><th>Penerima</th><th>Keperluan</th>
+      <thead><tr><th>#</th><th>Referensi</th><th>PT</th><th>Tanggal</th><th>Lokasi</th><th>Penerima</th><th>Keperluan</th>
         <th class="text-center">Item</th><th class="text-center">Total Qty</th><th>Oleh</th></tr></thead>
       <tbody>
       <?php if(empty($rows)): ?>
-        <tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-4">Tidak ada data</td></tr>
       <?php else: foreach($rows as $i=>$r): ?>
         <tr>
           <td class="small text-muted"><?=$pag['offset']+$i+1?></td>
           <td><a href="<?=APP_URL?>/pages/stock-out/view.php?id=<?=$r['id']?>">
             <code class="small"><?=htmlspecialchars($r['reference_no'])?></code></a></td>
+          <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars($r['comp_code'] ?? 'MSP')?></span></td>
           <td class="small"><?=tgl($r['transaction_date'])?></td>
           <td class="small"><?=htmlspecialchars($r['location_name'])?></td>
           <td class="small"><?=htmlspecialchars($r['recipient']??'-')?></td>
@@ -101,7 +105,7 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
   </div>
   <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
     <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transaksi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter]).'&page=%d')?>
+    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter]).'&page=%d')?>
   </div>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

@@ -44,12 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $db->begin_transaction();
             $inserted = 0;
-            $stmt = $db->prepare('INSERT INTO items (code,name,category_id,unit_id,min_stock,buy_price,sell_price,description,is_active)
-                VALUES (?,?,?,?,?,?,?,?,1)');
+            $import_company_id = req_int('company_id') ?: null;
+            $stmt = $db->prepare('INSERT INTO items (code,name,category_id,unit_id,company_id,min_stock,buy_price,sell_price,description,is_active)
+                VALUES (?,?,?,?,?,?,?,?,?,1)');
             
             foreach ($valid as $row) {
-                $stmt->bind_param('ssiiidds',
-                    $row['code'], $row['name'], $row['category_id'], $row['unit_id'],
+                $stmt->bind_param('ssiiiidds',
+                    $row['code'], $row['name'], $row['category_id'], $row['unit_id'], $import_company_id,
                     $row['min_stock'], $row['buy_price'], $row['sell_price'], $row['description']);
                 if ($stmt->execute()) $inserted++;
             }
@@ -200,11 +201,17 @@ include __DIR__ . '/../../includes/header.php';
       <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Batalkan</button>
     </form>
     <?php if($valid_count > 0):?>
-    <form method="POST" class="d-inline">
+    <form method="POST" class="d-inline d-flex align-items-center gap-2">
       <?=csrf_field()?>
       <input type="hidden" name="action" value="confirm">
       <input type="hidden" name="upload_key" value="<?=htmlspecialchars($upload_key)?>">
       <input type="hidden" name="extension" value="<?=htmlspecialchars($extension)?>">
+      <select name="company_id" class="form-select form-select-sm" style="width:auto">
+        <option value="0">Global (Semua PT)</option>
+        <?php foreach (user_companies() as $uc): ?>
+        <option value="<?=$uc['id']?>" <?=current_company_id()==$uc['id']?'selected':''?>>Khusus <?=htmlspecialchars($uc['code'])?> — <?=htmlspecialchars($uc['name'])?></option>
+        <?php endforeach; ?>
+      </select>
       <button type="submit" class="btn btn-sm btn-success" data-confirm="Import <?=$valid_count?> barang?">
         <i class="bi bi-check-circle me-1"></i>Konfirmasi Import (<?=$valid_count?> barang)
       </button>
