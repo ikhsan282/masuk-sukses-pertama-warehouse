@@ -13,12 +13,13 @@ Sistem ini telah disesuaikan dengan profil bisnis riil **PT Masuk Sukses Pertama
   - **PT Masuk Sukses Pertama (MSP)** — Induk Holding (`is_holding = 1`) & Importir Utama.
   - **PT Sukses Logistik Nusantara (SLN)** — Anak Perusahaan Distribusi & Operasional Tambang/Logistik Kalimantan.
   - **PT Prima Distribusi Mandiri (PDM)** — Anak Perusahaan Distribusi Retail & Sub-Dealer Jawa Timur.
-- **Shared Warehouse / Rak Bersama**: Lokasi rak fisik yang sama (misal `RAK-A1`) dapat digunakan bersama oleh beberapa PT dengan saldo stok yang terisolasi aman secara logis (`stock.company_id`).
-- **Katalog Hybrid (*Hybrid Catalog*)**:
-  - *Global/Shared Items* (`company_id IS NULL`): Barang bersama yang dapat distok dan dipakai oleh semua PT (misal: Ban Dalam Butyl, Flap Selendang, Valve Pentil OTR, O-Ring Seal).
-  - *Dedicated Items* (`company_id NOT NULL`): Barang eksklusif milik PT tertentu yang hanya muncul pada transaksi PT yang bersangkutan.
+- **Shared Warehouse / Rak Bersama**: Lokasi rak fisik yang sama (misal `RAK-A1`, `RAK-B1`) dapat digunakan bersama oleh beberapa PT dengan saldo stok yang terisolasi aman secara logis (`stock.company_id`).
+- **Master Barang Terpusat (*Centralized SKU Catalog*) & Kepemilikan Stok per PT**:
+  - Setiap kode barang (`items`) cukup didaftarkan **1 kali** pada katalog grup tanpa batasan kepemilikan "Global / Khusus PT" pada master item.
+  - Saldo stok dan transaksi untuk barang yang sama tercatat **terpisah per masing-masing PT** pada tabel `stock` (contoh: item `MSP-OPL-178` bisa dimiliki di `MSP` 100 pcs, `SLN` 1.500 pcs, dan `PDM` 15 pcs secara bersamaan).
+  - Halaman detail barang menampilkan **Kepemilikan Stok per PT** sekaligus rincian per lokasi untuk PT aktif.
 - **Company Switcher Instan**: Pilihan aktif PT di topbar navigasi; pengguna yang memiliki hak akses multi-PT dapat berpindah entitas bisnis tanpa perlu logout.
-- **Transfer Stok Antar-PT (*Inter-Company Transfer*)**: Pemindahan kepemilikan stok barang dari Holding ke Anak PT (atau sebaliknya) dengan audit mutasi ganda otomatis (`transfer_out` dan `transfer_in`).
+- **Transfer Stok Antar-PT (*Inter-Company Transfer*)**: Pemindahan kepemilikan stok barang yang sama dari PT asal ke PT tujuan (contoh: PT `SLN` mentransfer sebagian stok `MSP-OPL-178` ke PT `PDM`) dengan audit mutasi ganda otomatis (`transfer_out` dan `transfer_in`).
 - **Mode Laporan Konsolidasi Holding**: Khusus akun Holding / Super Admin, tersedia opsi filter **"Semua PT"** untuk melihat total stok konsolidasi seluruh grup perusahaan, maupun filter spesifik per entitas PT.
 - **Penomoran Dokumen Khusus per PT**: Nomor referensi transaksi otomatis membawa kode PT (`SI-MSP-...`, `SO-SLN-...`, `PO-PDM-...`, `ADJ-MSP-...`, `RET-MSP-...`).
 
@@ -110,25 +111,26 @@ Semua akun dummy menggunakan password standar: **`P@ssw0rd`**
 
 Database telah terisi data riil hasil scraping profil [mspgrup.co.id](https://mspgrup.co.id):
 
-### Katalog Produk Ban & Komponen (17 Item)
-- **Shared / Global Components**:
+### Katalog Produk Ban & Komponen (17 Item Terpusat)
+Semua PT menggunakan katalog SKU terpusat di bawah ini, sementara saldo stok masing-masing PT (seperti contoh `MSP-OPL-178` yang terisi di `MSP` 100 pcs, `SLN` 1.500 pcs, dan `PDM` 15 pcs) dicatat terpisah pada tabel `stock`:
+- **Ban Dalam, Flap & Aksesoris**:
   - `SHR-TUB-01`: WEN FENG Butyl Inner Tube 12.00R20 TR179A
   - `SHR-TUB-02`: WANBO Butyl Inner Tube 23.5-25 TR179A
   - `SHR-FLP-01`: Flap Selendang Ban Truk 12.00-20 Heavy Duty
   - `SHR-VAL-01`: Valve Pentil Ban OTR TRJ1175C Heavy Duty Brass
   - `SHR-ORG-01`: O-Ring Seal Ban Tubeless OTR 25 Inch
-- **PT Masuk Sukses Pertama (Holding)**:
+- **Seri OPALS TBR & OTR**:
   - `MSP-OPL-232`: OPALS OP232 315/80R22.5 (TBR Tubeless Highway Long Haul)
   - `MSP-OPL-225`: OPALS OP225 11.00R20 (TBR All-Position 3-Line)
   - `MSP-OPL-359`: OPALS EV OP359 12.00R20 (TBR Mining & Heavy Logging)
   - `MSP-OPL-195`: OPALS OTR OP195 23.5-25 (Wheel Loader Tambang)
-  - `MSP-OPL-178`: OPALS OTR OP178 14.00-24 (Motor Grader)
-- **PT Sukses Logistik Nusantara (Anak PT - Kalimantan)**:
+  - `MSP-OPL-178`: OPALS OTR OP178 14.00-24 (Motor Grader — stok contoh multi-PT: MSP 100, SLN 1.500, PDM 15)
+- **Seri WANBO Mining OTR & Solid Forklift**:
   - `SLN-WNB-699`: WANBO WB699 18.00-25 (Dump Truck Tambang Batubara)
   - `SLN-WNB-625`: WANBO WB625 23.5-25 (Loader Batubara)
   - `SLN-WNB-711`: WANBO WB711 29.5R25 (Giant Mining Radial Haul Truck)
   - `SLN-WNB-SLD`: WANBO Solid Tire 28x9-15 (Forklift Pelabuhan 3.5 - 5 Ton)
-- **PT Prima Distribusi Mandiri (Anak PT - Jawa Timur)**:
+- **Seri Ban Distribusi Kargo & Light Truck**:
   - `PDM-OPL-366`: OPALS OP366 10.00R20 (Truk Kargo Antar-Kota)
   - `PDM-OPL-265`: OPALS OP265 7.50R16 (Truk Canter / Engkel Distribusi)
   - `PDM-WNB-650`: WANBO Solid Tire 6.50-10 (Ban Solid Forklift Pabrik 2 - 2.5 Ton)

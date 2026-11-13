@@ -21,6 +21,8 @@ $details=$st2->get_result()->fetch_all(MYSQLI_ASSOC); $st2->close();
 
 $db->begin_transaction();
 try {
+    $undo_lines = array_map(fn($d) => [(int)$d['item_id'], (int)$d['quantity']], $details);
+    assert_location_stock_available($db, (int)$header['to_location_id'], $undo_lines, (int)$header['to_company_id']);
     foreach ($details as $d) {
         update_stock($d['item_id'],$header['from_location_id'],$d['quantity'],(int)$header['from_company_id']); // restore source
         update_stock($d['item_id'],$header['to_location_id'],-$d['quantity'],(int)$header['to_company_id']);  // undo destination

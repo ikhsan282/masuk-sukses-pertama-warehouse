@@ -24,11 +24,9 @@ function get_low_stock_items(?int $company_id = null): array {
         $company_id = current_company_id();
     }
     
-    $where_company = '';
     $join_company = '';
     if ($company_id) {
         $join_company = "AND s.company_id = $company_id";
-        $where_company = "AND (i.company_id IS NULL OR i.company_id = $company_id)";
     }
 
     $query = "
@@ -45,7 +43,7 @@ function get_low_stock_items(?int $company_id = null): array {
         FROM items i
         JOIN units u ON u.id = i.unit_id
         LEFT JOIN stock s ON s.item_id = i.id $join_company
-        WHERE i.is_active = 1 $where_company
+        WHERE i.is_active = 1
         GROUP BY i.id, i.code, i.name, i.min_stock, u.abbreviation, i.buy_price
         HAVING total_stock <= i.min_stock
         ORDER BY total_stock ASC, i.name ASC

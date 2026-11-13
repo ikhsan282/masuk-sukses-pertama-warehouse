@@ -9,9 +9,11 @@ $db = getDB();
 
 // Filter parameters
 $supplier_filter = req_int('supplier_id');
-$start_date = req_str('start_date', date('Y-m-01')); // Default: first day of current month
-$end_date = req_str('end_date', date('Y-m-d'));      // Default: today
-$page = max(1, req_int('page', 1));
+$start_date = req_date('start_date', date('Y-m-01')); // Default: first day of current month
+$end_date   = req_date('end_date', date('Y-m-d'));      // Default: today
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $cf = resolve_company_filter('company_id');
 $comp_in = $cf['sql_in'];
 
@@ -28,21 +30,21 @@ if ($supplier_filter) {
 
 $where = 'WHERE ' . implode(' AND ', $where_parts);
 
-// Count total suppliers for pagination
-$count_query = "SELECT COUNT(DISTINCT s.id) 
-    FROM suppliers s 
-    LEFT JOIN purchase_orders po ON s.id = po.supplier_id 
-    $where";
-$cq = $db->prepare($count_query);
-$cq->bind_param($types, ...$params);
-$cq->execute();
-$cq->bind_result($total);
-$cq->fetch();
-$cq->close();
+// Count active suppliers consistently with main LEFT JOIN grid
+if ($supplier_filter) {
+    $cq = $db->prepare("SELECT COUNT(*) FROM suppliers s WHERE s.is_active=1 AND s.id=?");
+    $cq->bind_param('i', $supplier_filter);
+    $cq->execute();
+    $cq->bind_result($total);
+    $cq->fetch();
+    $cq->close();
+} else {
+    $total = (int)$db->query("SELECT COUNT(*) FROM suppliers WHERE is_active=1")->fetch_row()[0];
+}
 
-$pag = paginate($total, $page);
+$pag = paginate($total, $page, $per_page);
 $offset = $pag['offset'];
-$limit = PER_PAGE;
+$limit = $pag['per_page'];
 
 // Main query with all metrics
 $query = "SELECT 
@@ -68,7 +70,7 @@ $query = "SELECT
 FROM suppliers s
 LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.company_id IN ($comp_in) AND po.order_date BETWEEN ? AND ?
 LEFT JOIN purchase_order_details pod ON po.id = pod.po_id
-" . ($supplier_filter ? "WHERE s.id = ?" : "") . "
+WHERE s.is_active=1" . ($supplier_filter ? " AND s.id = ?" : "") . "
 GROUP BY s.id
 ORDER BY total_value DESC
 LIMIT ? OFFSET ?";
@@ -89,8 +91,15 @@ $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
 $st->close();
 
-// Get all suppliers for dropdown
-$suppliers = $db->query('SELECT id, code, name FROM suppliers WHERE is_active=1 ORDER BY name')->fetch_all(MYSQLI_ASSOC);
+// Capped supplier dropdown for large datasets
+$suppliers = $db->query('SELECT id, code, name FROM suppliers WHERE is_active=1 ORDER BY name LIMIT 500')->fetch_all(MYSQLI_ASSOC);
+if ($supplier_filter && !in_array($supplier_filter, array_map('intval', array_column($suppliers, 'id')), true)) {
+    $sel_st = $db->prepare('SELECT id, code, name FROM suppliers WHERE id=? LIMIT 1');
+    $sel_st->bind_param('i', $supplier_filter);
+    $sel_st->execute();
+    if ($sel_row = $sel_st->get_result()->fetch_assoc()) array_unshift($suppliers, $sel_row);
+    $sel_st->close();
+}
 
 // Calculate summary totals
 $summary_query = "SELECT 
@@ -204,9 +213,6 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> supplier</small>
-    <?=pagination_html($pag, '?' . http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date]) . '&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'supplier', ['company_id' => $cf['param_value'], 'supplier_id' => $supplier_filter ?: '', 'start_date' => $start_date, 'end_date' => $end_date]) ?>
 </div>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>

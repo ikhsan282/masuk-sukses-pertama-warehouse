@@ -8,12 +8,11 @@ $db = getDB();
 
 $id = req_int('id');
 $comp_id = current_company_id();
-$st = $db->prepare('SELECT i.*, c.name AS cat_name, u.name AS unit_name, u.abbreviation,
-    comp.code AS comp_code, comp.name AS comp_name
+$comp_code = current_company()['code'] ?? 'MSP';
+$st = $db->prepare('SELECT i.*, c.name AS cat_name, u.name AS unit_name, u.abbreviation
     FROM items i
     JOIN categories c ON c.id=i.category_id
     JOIN units u ON u.id=i.unit_id
-    LEFT JOIN companies comp ON comp.id=i.company_id
     WHERE i.id=?');
 $st->bind_param('i', $id); $st->execute();
 $item = $st->get_result()->fetch_assoc(); $st->close();
@@ -24,6 +23,23 @@ $stock_rows = $db->prepare('SELECT l.code, l.name, s.quantity FROM stock s
     JOIN locations l ON l.id=s.location_id WHERE s.item_id=? AND s.company_id=? AND s.quantity>0 ORDER BY l.code');
 $stock_rows->bind_param('ii', $id, $comp_id); $stock_rows->execute();
 $stocks = $stock_rows->get_result()->fetch_all(MYSQLI_ASSOC); $stock_rows->close();
+
+// Stock breakdown per PT (within user's assigned companies)
+$allowed_ids = array_values(array_filter(array_map(fn($c) => (int)$c['id'], user_companies())));
+$pt_stocks = [];
+if (count($allowed_ids) > 1) {
+    $in_sql = implode(',', $allowed_ids);
+    $pt_st = $db->prepare("SELECT c.id, c.code, c.name, COALESCE(SUM(s.quantity),0) AS qty
+        FROM companies c
+        LEFT JOIN stock s ON s.company_id=c.id AND s.item_id=?
+        WHERE c.id IN ($in_sql) AND c.is_active=1
+        GROUP BY c.id, c.code, c.name
+        ORDER BY c.is_holding DESC, c.id ASC");
+    $pt_st->bind_param('i', $id);
+    $pt_st->execute();
+    $pt_stocks = $pt_st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $pt_st->close();
+}
 
 // Recent mutations (for active company)
 $mut = $db->prepare('SELECT m.*, l.name AS loc_name FROM mutations m
@@ -63,13 +79,6 @@ include __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
         <table class="table table-sm table-borderless mb-0">
           <tr><td class="text-muted small" style="width:40%">Kode</td><td><code><?= htmlspecialchars($item['code']) ?></code></td></tr>
-          <tr><td class="text-muted small">Kepemilikan</td><td>
-            <?php if ($item['company_id']): ?>
-              <span class="badge bg-primary-subtle text-primary border"><?= htmlspecialchars($item['comp_code'] . ' — ' . $item['comp_name']) ?></span>
-            <?php else: ?>
-              <span class="badge bg-secondary-subtle text-secondary border">Global (Semua PT)</span>
-            <?php endif; ?>
-          </td></tr>
           <tr><td class="text-muted small">Nama</td><td class="fw-semibold"><?= htmlspecialchars($item['name']) ?></td></tr>
           <tr><td class="text-muted small">Kategori</td><td><?= htmlspecialchars($item['cat_name']) ?></td></tr>
           <tr><td class="text-muted small">Satuan</td><td><?= htmlspecialchars($item['unit_name']) ?> (<?= htmlspecialchars($item['abbreviation']) ?>)</td></tr>
@@ -85,9 +94,9 @@ include __DIR__ . '/../../includes/header.php';
     </div>
 
     <div class="card shadow-sm mt-3">
-      <div class="card-header bg-white fw-semibold"><i class="bi bi-geo-alt me-2"></i>Stok per Lokasi</div>
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-geo-alt me-2"></i>Stok <?= htmlspecialchars($comp_code) ?> per Lokasi</div>
       <?php if (empty($stocks)): ?>
-        <div class="card-body text-center text-muted py-3 small">Belum ada stok</div>
+        <div class="card-body text-center text-muted py-3 small">Belum ada stok di PT <?= htmlspecialchars($comp_code) ?></div>
       <?php else: ?>
       <div class="table-responsive">
         <table class="table table-sm mb-0">
@@ -97,7 +106,7 @@ include __DIR__ . '/../../includes/header.php';
             <tr><td><?= htmlspecialchars($s['name']) ?> <code class="small"><?= htmlspecialchars($s['code']) ?></code></td>
             <td class="text-end fw-bold"><?= $s['quantity'] ?></td></tr>
           <?php endforeach; ?>
-          <tr class="table-light"><td class="fw-bold">Total</td><td class="text-end fw-bold">
+          <tr class="table-light"><td class="fw-bold">Total (<?= htmlspecialchars($comp_code) ?>)</td><td class="text-end fw-bold">
             <span class="badge <?= $total_stock==0?'badge-zero':($total_stock<=$item['min_stock']?'badge-low':'badge-ok') ?>">
               <?= $total_stock ?> <?= htmlspecialchars($item['abbreviation']) ?>
             </span></td></tr>
@@ -106,6 +115,34 @@ include __DIR__ . '/../../includes/header.php';
       </div>
       <?php endif; ?>
     </div>
+
+    <?php if (!empty($pt_stocks)): $total_group_stock = array_sum(array_column($pt_stocks, 'qty')); ?>
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-buildings me-2"></i>Kepemilikan Stok per PT</span>
+        <?php if (can('transfers.create')): ?>
+        <a href="<?= APP_URL ?>/pages/transfers/create.php" class="btn btn-xs btn-outline-primary py-0 px-2" style="font-size:.75rem">Transfer Antar-PT</a>
+        <?php endif; ?>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Perusahaan (PT)</th><th class="text-end">Stok</th></tr></thead>
+          <tbody>
+          <?php foreach ($pt_stocks as $ps): ?>
+            <tr class="<?= (int)$ps['id'] === $comp_id ? 'table-success bg-opacity-10' : '' ?>">
+              <td><code class="small"><?= htmlspecialchars($ps['code']) ?></code> <?= htmlspecialchars($ps['name']) ?></td>
+              <td class="text-end fw-semibold"><?= number_format((int)$ps['qty']) ?> <?= htmlspecialchars($item['abbreviation']) ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <tr class="table-light">
+            <td class="fw-bold">Total Konsolidasi Grup</td>
+            <td class="text-end fw-bold"><?= number_format($total_group_stock) ?> <?= htmlspecialchars($item['abbreviation']) ?></td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
 
   <div class="col-lg-7">

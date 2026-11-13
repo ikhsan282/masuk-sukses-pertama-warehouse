@@ -36,12 +36,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $opname_comp_id = (int)($opname['company_id'] ?: current_company_id());
-$items = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=' . $opname_comp_id . ') ORDER BY i.name')->fetch_all(MYSQLI_ASSOC);
+$items = $db->query('SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name LIMIT 500')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
+
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$cq = $db->prepare('SELECT COUNT(*) FROM stock_opname_items WHERE session_id=?');
+$cq->bind_param('i', $id);
+$cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+$pag    = paginate($total, $page, $per_page);
+$offset = $pag['offset'];
+$limit  = $pag['per_page'];
+
 $list = $db->prepare('SELECT oi.*,i.code,i.name,u.abbreviation,l.code location_code,l.name location_name
-    FROM stock_opname_items oi JOIN items i ON i.id=oi.item_id JOIN units u ON u.id=i.unit_id
-    JOIN locations l ON l.id=oi.location_id WHERE oi.session_id=? ORDER BY oi.id DESC');
-$list->bind_param('i', $id);
+    FROM (SELECT id FROM stock_opname_items WHERE session_id=? ORDER BY id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_opname_items oi ON oi.id=pg.id
+    JOIN items i ON i.id=oi.item_id JOIN units u ON u.id=i.unit_id
+    JOIN locations l ON l.id=oi.location_id ORDER BY oi.id DESC');
+$list->bind_param('iii', $id, $limit, $offset);
 $list->execute();
 $counts = $list->get_result()->fetch_all(MYSQLI_ASSOC);
 $list->close();
@@ -67,7 +80,7 @@ include __DIR__ . '/../../includes/header.php';
       <div class="col-lg-5">
         <label class="form-label small fw-semibold required">Barang (scan / cari)</label>
         <div class="input-group">
-          <select name="item_id" class="form-select ts-select item-select" required>
+          <select name="item_id" class="form-select ts-select item-select" data-remote-items="1" required>
             <option value="">— Pilih barang —</option>
             <?php foreach ($items as $it): ?><option value="<?= $it['id'] ?>" data-code="<?= e($it['code']) ?>">[<?= e($it['code']) ?>] <?= e($it['name']) ?> (<?= e($it['abbreviation']) ?>)</option><?php endforeach; ?>
           </select>
@@ -91,7 +104,7 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white fw-semibold">Hitungan Tersimpan (<?= count($counts) ?>)</div>
+  <div class="card-header bg-white fw-semibold">Hitungan Tersimpan (<?= number_format($total, 0, ',', '.') ?>)</div>
   <div class="table-responsive"><table class="table mb-0">
     <thead><tr><th>Barang</th><th>Lokasi</th><th class="text-end">Sistem</th><th class="text-end">Fisik</th><th class="text-end">Selisih</th><th>Waktu</th></tr></thead>
     <tbody>
@@ -101,6 +114,7 @@ include __DIR__ . '/../../includes/header.php';
     <?php endforeach; ?>
     </tbody>
   </table></div>
+  <?= grid_footer_html($pag, 'hitungan', ['id' => $id]) ?>
 </div>
 <?php include __DIR__ . '/../../includes/scanner-modal.php'; ?>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>

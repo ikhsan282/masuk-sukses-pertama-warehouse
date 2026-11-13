@@ -8,9 +8,9 @@ function nav_active(string $path): string {
 ?>
 <nav id="sidebar" class="sidebar text-white d-flex flex-column">
   <div class="sidebar-header d-flex align-items-center justify-content-between px-3 py-3 border-bottom border-secondary">
-    <a href="<?= APP_URL ?>/pages/dashboard.php" class="text-white text-decoration-none d-flex align-items-center gap-2">
+    <a href="<?= APP_URL ?>/pages/dashboard.php" class="text-white text-decoration-none d-flex align-items-center gap-2" title="<?= htmlspecialchars(APP_NAME) ?>">
       <i class="bi bi-boxes fs-5 text-success"></i>
-      <span class="fw-bold sidebar-label"><?= APP_NAME ?></span>
+      <span class="fw-bold sidebar-label">MSP Warehouse</span>
     </a>
   </div>
   <div class="sidebar-menu flex-grow-1 overflow-y-auto py-2">

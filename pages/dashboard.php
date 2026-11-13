@@ -6,37 +6,57 @@ require_once __DIR__ . '/../includes/functions.php';
 require_perm('dashboard.view');
 
 $db = getDB();
+grid_apply_timeout($db, 10.0);
 
 // Stats
 $cid = current_company_id();
 $active_comp = current_company();
 
-$total_items = $db->query("SELECT COUNT(*) FROM items WHERE is_active=1 AND (company_id IS NULL OR company_id=$cid)")->fetch_row()[0];
+$total_items = $db->query("SELECT COUNT(*) FROM items WHERE is_active=1")->fetch_row()[0];
 $total_suppliers = $db->query('SELECT COUNT(*) FROM suppliers WHERE is_active=1')->fetch_row()[0];
 $total_locations = $db->query('SELECT COUNT(*) FROM locations WHERE is_active=1')->fetch_row()[0];
 
-// Inventory value
+// Inventory value (uses idx_stock_comp_item_qty)
 $inv_value = $db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id=$cid")->fetch_row()[0];
 
-// Low stock items
-$low_stock_count = $db->query("SELECT COUNT(*) FROM (
-    SELECT i.id FROM items i 
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid 
-    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
-    GROUP BY i.id,i.min_stock 
-    HAVING COALESCE(SUM(s.quantity),0)<=i.min_stock
-) low")->fetch_row()[0];
+// Low stock count (shared 60s session cache + correlated covering-index scalar subquery)
+$cached_low = $_SESSION['low_stock_cache'][$cid] ?? null;
+if (is_array($cached_low) && (time() - (int)($cached_low['ts'] ?? 0)) < 60) {
+    $low_stock_count = (int)$cached_low['count'];
+} else {
+    $low_stock_count = (int)$db->query("SELECT COUNT(*) FROM items i
+        WHERE i.is_active=1
+        AND COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id=$cid), 0) <= i.min_stock")->fetch_row()[0];
+    $_SESSION['low_stock_cache'][$cid] = ['count' => $low_stock_count, 'ts' => time()];
+}
 
-$low_stock = $db->query("SELECT i.code, i.name, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock,
-    GREATEST(i.min_stock*2-COALESCE(SUM(s.quantity),0),1) AS suggested_qty,
-    u.abbreviation FROM items i
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid
+// Fast top-10 lowest-stock list: short-circuit on zero-stock items before scanning stocked items
+$low_stock = $db->query("SELECT i.code, i.name, i.min_stock, 0 AS total_stock,
+    GREATEST(i.min_stock*2,1) AS suggested_qty, u.abbreviation
+    FROM items i
     LEFT JOIN units u ON u.id=i.unit_id
-    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid)
-    GROUP BY i.id, i.min_stock, i.code, i.name, u.abbreviation HAVING total_stock <= i.min_stock
-    ORDER BY total_stock ASC LIMIT 10")->fetch_all(MYSQLI_ASSOC);
+    WHERE i.is_active=1
+    AND NOT EXISTS (SELECT 1 FROM stock s WHERE s.item_id=i.id AND s.company_id=$cid AND s.quantity > 0)
+    ORDER BY i.id ASC LIMIT 10")->fetch_all(MYSQLI_ASSOC);
 
-// Today transactions
+if (count($low_stock) < 10) {
+    $rem = 10 - count($low_stock);
+    $more_low = $db->query("SELECT i.code, i.name, i.min_stock, st.qty AS total_stock,
+        GREATEST(i.min_stock*2-st.qty,1) AS suggested_qty, u.abbreviation
+        FROM (
+            SELECT s.item_id, SUM(s.quantity) AS qty
+            FROM stock s
+            WHERE s.company_id=$cid AND s.quantity > 0
+            GROUP BY s.item_id
+        ) st
+        JOIN items i ON i.id=st.item_id
+        LEFT JOIN units u ON u.id=i.unit_id
+        WHERE i.is_active=1 AND st.qty <= i.min_stock
+        ORDER BY st.qty ASC LIMIT $rem")->fetch_all(MYSQLI_ASSOC);
+    $low_stock = array_merge($low_stock, $more_low);
+}
+
+// Today transactions (indexed via idx_stock_in_comp_date / idx_stock_out_comp_date)
 $today = date('Y-m-d');
 $today_in  = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='{$today}' AND company_id=$cid")->fetch_row()[0];
 $today_out = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='{$today}' AND company_id=$cid")->fetch_row()[0];
@@ -50,24 +70,36 @@ $recent = $db->query("SELECT m.created_at, m.type, m.quantity, i.name AS item_na
     WHERE m.company_id=$cid
     ORDER BY m.id DESC LIMIT 8")->fetch_all(MYSQLI_ASSOC);
 
-// Chart data: last 7 days transactions
+// Chart data: last 7 days transactions (2 grouped queries instead of 14 queries in a loop)
+$start_7 = date('Y-m-d', strtotime('-6 days'));
+$in_map = [];
+$rs_in = $db->query("SELECT transaction_date, COUNT(*) AS cnt FROM stock_in WHERE company_id=$cid AND transaction_date BETWEEN '$start_7' AND '$today' GROUP BY transaction_date");
+while ($r = $rs_in->fetch_assoc()) $in_map[$r['transaction_date']] = (int)$r['cnt'];
+$out_map = [];
+$rs_out = $db->query("SELECT transaction_date, COUNT(*) AS cnt FROM stock_out WHERE company_id=$cid AND transaction_date BETWEEN '$start_7' AND '$today' GROUP BY transaction_date");
+while ($r = $rs_out->fetch_assoc()) $out_map[$r['transaction_date']] = (int)$r['cnt'];
+
 $chart_days = [];
 $chart_in = [];
 $chart_out = [];
 for ($i = 6; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime("-$i days"));
     $chart_days[] = date('d M', strtotime($date));
-    $in_count = $db->query("SELECT COUNT(*) FROM stock_in WHERE transaction_date='$date' AND company_id=$cid")->fetch_row()[0];
-    $out_count = $db->query("SELECT COUNT(*) FROM stock_out WHERE transaction_date='$date' AND company_id=$cid")->fetch_row()[0];
-    $chart_in[] = (int)$in_count;
-    $chart_out[] = (int)$out_count;
+    $chart_in[]   = $in_map[$date] ?? 0;
+    $chart_out[]  = $out_map[$date] ?? 0;
 }
 
-// Top items by stock value
-$top_items = $db->query("SELECT i.name, COALESCE(SUM(s.quantity * i.buy_price),0) AS value
-    FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid
-    WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
-    GROUP BY i.id ORDER BY value DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
+// Top items by stock value (drive from stock table instead of scanning 1M items)
+$top_items = $db->query("SELECT i.name, (st.qty * i.buy_price) AS value
+    FROM (
+        SELECT s.item_id, SUM(s.quantity) AS qty
+        FROM stock s
+        WHERE s.company_id=$cid AND s.quantity > 0
+        GROUP BY s.item_id
+    ) st
+    JOIN items i ON i.id=st.item_id
+    WHERE i.is_active=1
+    ORDER BY value DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
 
 $page_title = 'Dashboard';
 include __DIR__ . '/../includes/header.php';

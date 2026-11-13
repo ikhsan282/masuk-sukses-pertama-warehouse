@@ -7,10 +7,12 @@ require_perm('reports.view');
 ob_start();
 $db = getDB();
 
-$date_from  = req_str('date_from', date('Y-m-01'));
-$date_to    = req_str('date_to',   date('Y-m-d'));
+$date_from  = req_date('date_from', date('Y-m-01'));
+$date_to    = req_date('date_to',   date('Y-m-d'));
 $loc_filter = req_int('location_id');
 $page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $cf         = resolve_company_filter('company_id');
 $comp_in    = $cf['sql_in'];
 
@@ -22,16 +24,18 @@ $where='WHERE '.implode(' AND ',$where_parts);
 $cq=$db->prepare("SELECT COUNT(*) FROM stock_out so $where");
 $cq->bind_param($types,...$params);$cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page);$offset=$pag['offset'];$limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page);$offset=$pag['offset'];$limit=$pag['per_page'];
 $t2=$types.'ii';$p2=$params;$p2[]=&$limit;$p2[]=&$offset;
 
 $st=$db->prepare("SELECT so.id, so.reference_no, so.transaction_date, so.recipient, so.purpose,
     l.name AS location_name, u.name AS user_name, comp.code AS comp_code,
     (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
     (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
-    FROM stock_out so JOIN locations l ON l.id=so.location_id
+    FROM (SELECT so.id FROM stock_out so $where ORDER BY so.transaction_date DESC, so.id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_out so ON so.id=pg.id
+    JOIN locations l ON l.id=so.location_id
     JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
-    $where ORDER BY so.transaction_date DESC, so.id DESC LIMIT ? OFFSET ?");
+    ORDER BY so.transaction_date DESC, so.id DESC");
 $st->bind_param($t2,...$p2);$st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC);$st->close();
 
@@ -103,9 +107,6 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transaksi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'location_id'=>$loc_filter]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'transaksi', ['company_id' => $cf['param_value'], 'date_from' => $date_from, 'date_to' => $date_to, 'location_id' => $loc_filter ?: '']) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

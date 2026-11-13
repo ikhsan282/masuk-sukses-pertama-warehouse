@@ -69,38 +69,247 @@ function tgl(string $date): string {
     return $d ? date_format($d, 'd') . ' ' . $bulan[(int)date_format($d, 'n')] . ' ' . date_format($d, 'Y') : '-';
 }
 
-// Pagination helper
-function paginate(int $total, int $page, int $per_page = PER_PAGE): array {
+// Grid & Export Safety Limits
+defined('GRID_MAX_OFFSET')       || define('GRID_MAX_OFFSET', 50000);
+defined('EXPORT_PRINT_MAX_ROWS') || define('EXPORT_PRINT_MAX_ROWS', 5000);
+defined('EXPORT_CSV_MAX_ROWS')   || define('EXPORT_CSV_MAX_ROWS', 100000);
+
+// Strict allowlist for per_page query param (prevents ?per_page=9999999 OOM/DoS)
+function grid_per_page(array $allowed = [10, 20, 50, 100], ?int $default = null): int {
+    $fallback = $default ?? PER_PAGE;
+    if (!in_array($fallback, $allowed, true)) $fallback = $allowed[0];
+    $val = isset($_GET['per_page']) ? (int)$_GET['per_page'] : $fallback;
+    return in_array($val, $allowed, true) ? $val : $fallback;
+}
+
+// Bounded, sanitized, & trimmed search query
+function grid_search_term(string $key = 'q', int $max_len = 100): string {
+    $raw = isset($_REQUEST[$key]) ? trim((string)$_REQUEST[$key]) : '';
+    if ($raw === '') return '';
+    $clean = preg_replace('/[\x00-\x1F\x7F]/u', '', $raw);
+    return $clean !== null ? mb_substr(trim($clean), 0, $max_len, 'UTF-8') : '';
+}
+
+// Escape SQL LIKE wildcards (% _ \) to block wildcard DoS (?q=%%%%)
+function escape_like(string $term): string {
+    return addcslashes($term, "\\%_");
+}
+
+// Strict YYYY-MM-DD validator for date filter params
+function req_date(string $key, string $default = ''): string {
+    $raw = isset($_REQUEST[$key]) ? trim((string)$_REQUEST[$key]) : '';
+    if ($raw === '') return $default;
+    $dt = DateTimeImmutable::createFromFormat('!Y-m-d', $raw);
+    if ($dt && $dt->format('Y-m-d') === $raw) return $raw;
+    return $default;
+}
+
+// Apply per-session statement timeout guard on heavy grid queries (MariaDB / MySQL)
+function grid_apply_timeout(mysqli $db, float $seconds = 10.0): void {
+    static $handler_registered = false;
+    $sec = max(1.0, min(60.0, $seconds));
+    try {
+        $info = $db->server_info ?? '';
+        if (stripos($info, 'MariaDB') !== false) {
+            $db->query('SET SESSION max_statement_time = ' . number_format($sec, 2, '.', ''));
+        } else {
+            $ms = (int)round($sec * 1000);
+            $db->query('SET SESSION max_execution_time = ' . $ms);
+        }
+    } catch (Throwable $e) {
+        // Ignore if database user lacks privilege or older server
+    }
+    if (!$handler_registered && PHP_SAPI !== 'cli') {
+        $handler_registered = true;
+        $prev = set_exception_handler(null);
+        set_exception_handler(static function (Throwable $e) use ($prev): void {
+            if ($e instanceof mysqli_sql_exception && in_array($e->getCode(), [1969, 3024], true)) {
+                if (!headers_sent()) http_response_code(503);
+                echo '<div style="font-family:system-ui,sans-serif;max-width:680px;margin:40px auto;padding:16px 20px;border:1px solid #f59e0b;background:#fef3c7;color:#92400e;border-radius:8px">'
+                   . '<strong>Batas Waktu Kueri Tercapai:</strong> Data terlalu besar untuk filter ini. Silakan persempit kata kunci pencarian atau rentang tanggal. '
+                   . '<a href="?" style="color:#92400e;font-weight:600;margin-left:8px">Reset Filter</a></div>';
+                exit;
+            }
+            if ($prev) {
+                $prev($e);
+            } else {
+                throw $e;
+            }
+        });
+    }
+}
+
+// Build XSS-safe and sprintf-crash-safe pagination URL
+function grid_page_url(array $query_params, int $page): string {
+    $clean = [];
+    foreach ($query_params as $k => $v) {
+        if ($v === '' || $v === null) continue;
+        $clean[(string)$k] = $v;
+    }
+    $clean['page'] = max(1, $page);
+    return htmlspecialchars('?' . http_build_query($clean), ENT_QUOTES, 'UTF-8');
+}
+
+// Pagination helper with safe deep-offset window guard for millions of rows
+function paginate(int $total, int $page, int $per_page = PER_PAGE, int $max_offset = GRID_MAX_OFFSET): array {
+    $total = max(0, $total);
+    $per_page = max(1, min(100, $per_page));
     $total_pages = max(1, (int)ceil($total / $per_page));
-    $page = max(1, min($page, $total_pages));
+    $max_safe_page = ($max_offset > 0) ? max(1, (int)floor($max_offset / $per_page)) : $total_pages;
+    $accessible_pages = min($total_pages, $max_safe_page);
+    $page = max(1, min($page, $accessible_pages));
+    $offset = ($page - 1) * $per_page;
+    $from = $total === 0 ? 0 : ($offset + 1);
+    $to = $total === 0 ? 0 : min($total, $offset + $per_page);
     return [
-        'total'       => $total,
-        'per_page'    => $per_page,
-        'current'     => $page,
-        'total_pages' => $total_pages,
-        'offset'      => ($page - 1) * $per_page,
+        'total'            => $total,
+        'per_page'         => $per_page,
+        'current'          => $page,
+        'total_pages'      => $total_pages,
+        'accessible_pages' => $accessible_pages,
+        'offset'           => $offset,
+        'from'             => $from,
+        'to'               => $to,
+        'offset_capped'    => $total_pages > $accessible_pages,
+        'max_offset'       => $max_offset,
     ];
 }
 
 function pagination_html(array $p, string $url_pattern): string {
-    if ($p['total_pages'] <= 1) return '';
-    $html = '<nav><ul class="pagination pagination-sm mb-0">';
-    $prev = $p['current'] - 1;
-    $next = $p['current'] + 1;
-    $html .= '<li class="page-item ' . ($p['current'] == 1 ? 'disabled' : '') . '">
-        <a class="page-link" href="' . sprintf($url_pattern, $prev) . '">&#8249;</a></li>';
-    for ($i = 1; $i <= $p['total_pages']; $i++) {
-        if ($p['total_pages'] > 7 && abs($i - $p['current']) > 2 && $i != 1 && $i != $p['total_pages']) {
-            if ($i == 2 || $i == $p['total_pages'] - 1) { $html .= '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
+    $max_page = (int)($p['accessible_pages'] ?? $p['total_pages']);
+    if ($max_page <= 1) return '';
+    $build = static function (int $target) use ($url_pattern): string {
+        $url = str_replace('%d', (string)$target, $url_pattern);
+        return htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+    };
+    $html = '<nav aria-label="Navigasi halaman"><ul class="pagination pagination-sm mb-0">';
+    $prev = max(1, $p['current'] - 1);
+    $next = min($max_page, $p['current'] + 1);
+    $html .= '<li class="page-item ' . ($p['current'] == 1 ? 'disabled' : '') . '"><a class="page-link" href="' . $build($prev) . '" aria-label="Sebelumnya">&#8249;</a></li>';
+    for ($i = 1; $i <= $max_page; $i++) {
+        if ($max_page > 7 && abs($i - $p['current']) > 2 && $i != 1 && $i != $max_page) {
+            if ($i == 2 || $i == $max_page - 1) { $html .= '<li class="page-item disabled"><span class="page-link">…</span></li>'; }
             continue;
         }
         $active = $i == $p['current'] ? 'active' : '';
-        $html .= '<li class="page-item ' . $active . '"><a class="page-link" href="' . sprintf($url_pattern, $i) . '">' . $i . '</a></li>';
+        $html .= '<li class="page-item ' . $active . '"><a class="page-link" href="' . $build($i) . '">' . $i . '</a></li>';
     }
-    $html .= '<li class="page-item ' . ($p['current'] == $p['total_pages'] ? 'disabled' : '') . '">
-        <a class="page-link" href="' . sprintf($url_pattern, $next) . '">&#8250;</a></li>';
+    $html .= '<li class="page-item ' . ($p['current'] == $max_page ? 'disabled' : '') . '"><a class="page-link" href="' . $build($next) . '" aria-label="Berikutnya">&#8250;</a></li>';
     $html .= '</ul></nav>';
     return $html;
+}
+
+// Standardized grid card-footer with formatted ranges, per-page selector, safe pagination & jump input
+function grid_footer_html(array $p, string $entity_label = 'data', array $query_params = [], array $opts = []): string {
+    $show_per_page = $opts['show_per_page'] ?? true;
+    $allowed_sizes = $opts['per_page_options'] ?? [10, 20, 50, 100];
+    $total = (int)$p['total'];
+    $from  = (int)($p['from'] ?? 0);
+    $to    = (int)($p['to'] ?? 0);
+    $cur   = (int)$p['current'];
+    $total_pages = (int)$p['total_pages'];
+    $acc_pages   = (int)($p['accessible_pages'] ?? $total_pages);
+
+    $clean_params = [];
+    foreach ($query_params as $k => $v) {
+        if ($v === '' || $v === null) continue;
+        $clean_params[(string)$k] = $v;
+    }
+
+    $fmt_total = number_format($total, 0, ',', '.');
+    $fmt_from  = number_format($from, 0, ',', '.');
+    $fmt_to    = number_format($to, 0, ',', '.');
+    $fmt_cur   = number_format($cur, 0, ',', '.');
+    $fmt_pages = number_format($total_pages, 0, ',', '.');
+    $label_esc = htmlspecialchars($entity_label, ENT_QUOTES, 'UTF-8');
+
+    $summary = $total > 0
+        ? "Menampilkan <strong>{$fmt_from}–{$fmt_to}</strong> dari <strong>{$fmt_total}</strong> {$label_esc}"
+        : "Menampilkan <strong>0</strong> dari <strong>0</strong> {$label_esc}";
+
+    $html  = '<div class="card-footer grid-footer bg-white d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 no-print">';
+    $html .= '<div class="d-flex flex-wrap align-items-center gap-2 small text-muted">';
+    $html .= '<span>' . $summary . '</span>';
+    if ($total > 0) {
+        $html .= '<span class="d-none d-sm-inline text-muted">&bull; Hal. ' . $fmt_cur . ' / ' . $fmt_pages . '</span>';
+    }
+    if (!empty($p['offset_capped'])) {
+        $fmt_cap = number_format((int)$p['max_offset'], 0, ',', '.');
+        $html .= '<span class="badge bg-warning-subtle text-warning border border-warning-subtle" title="Batasi kueri dengan pencarian atau rentang tanggal agar tetap cepat">Batas aman offset ' . $fmt_cap . ' baris</span>';
+    }
+    $html .= '</div>';
+
+    $html .= '<div class="d-flex flex-wrap align-items-center gap-2 ms-auto">';
+    if ($show_per_page) {
+        $pp_params = $clean_params;
+        unset($pp_params['page'], $pp_params['per_page']);
+        $html .= '<form method="GET" class="d-inline-flex align-items-center gap-1 m-0">';
+        foreach ($pp_params as $hk => $hv) {
+            $html .= '<input type="hidden" name="' . htmlspecialchars($hk, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars((string)$hv, ENT_QUOTES, 'UTF-8') . '">';
+        }
+        $html .= '<input type="hidden" name="page" value="1">';
+        $html .= '<select name="per_page" class="form-select form-select-sm w-auto" aria-label="Jumlah baris per halaman" onchange="this.form.submit()">';
+        foreach ($allowed_sizes as $sz) {
+            $sel = ((int)$p['per_page'] === (int)$sz) ? ' selected' : '';
+            $html .= '<option value="' . (int)$sz . '"' . $sel . '>' . (int)$sz . ' / hal</option>';
+        }
+        $html .= '</select></form>';
+    }
+
+    if ($acc_pages > 1) {
+        $url_params = $clean_params;
+        if ($show_per_page) $url_params['per_page'] = (int)$p['per_page'];
+        $html .= '<nav aria-label="Navigasi halaman"><ul class="pagination pagination-sm mb-0">';
+        $html .= '<li class="page-item ' . ($cur <= 1 ? 'disabled' : '') . '"><a class="page-link" href="' . grid_page_url($url_params, 1) . '" title="Halaman pertama" aria-label="Pertama">&laquo;</a></li>';
+        $html .= '<li class="page-item ' . ($cur <= 1 ? 'disabled' : '') . '"><a class="page-link" href="' . grid_page_url($url_params, max(1, $cur - 1)) . '" title="Sebelumnya" aria-label="Sebelumnya">&#8249;</a></li>';
+
+        for ($i = 1; $i <= $acc_pages; $i++) {
+            if ($acc_pages > 7 && abs($i - $cur) > 2 && $i != 1 && $i != $acc_pages) {
+                if ($i == 2 || $i == $acc_pages - 1) {
+                    $html .= '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                }
+                continue;
+            }
+            $active = ($i === $cur) ? ' active' : '';
+            $html .= '<li class="page-item' . $active . '"><a class="page-link" href="' . grid_page_url($url_params, $i) . '">' . number_format($i, 0, ',', '.') . '</a></li>';
+        }
+
+        $html .= '<li class="page-item ' . ($cur >= $acc_pages ? 'disabled' : '') . '"><a class="page-link" href="' . grid_page_url($url_params, min($acc_pages, $cur + 1)) . '" title="Berikutnya" aria-label="Berikutnya">&#8250;</a></li>';
+        $html .= '<li class="page-item ' . ($cur >= $acc_pages ? 'disabled' : '') . '"><a class="page-link" href="' . grid_page_url($url_params, $acc_pages) . '" title="Halaman terakhir dalam batas aman" aria-label="Terakhir">&raquo;</a></li>';
+        $html .= '</ul></nav>';
+
+        if ($acc_pages > 5) {
+            $jmp_params = $clean_params;
+            if ($show_per_page) $jmp_params['per_page'] = (int)$p['per_page'];
+            unset($jmp_params['page']);
+            $html .= '<form method="GET" class="d-none d-md-inline-flex align-items-center gap-1 m-0">';
+            foreach ($jmp_params as $hk => $hv) {
+                $html .= '<input type="hidden" name="' . htmlspecialchars($hk, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars((string)$hv, ENT_QUOTES, 'UTF-8') . '">';
+            }
+            $html .= '<input type="number" name="page" min="1" max="' . $acc_pages . '" value="' . $cur . '" class="form-control form-control-sm" style="width:68px" title="Lompat ke halaman (1–' . $acc_pages . ')" aria-label="Lompat halaman">';
+            $html .= '<button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-2" style="height:28px" title="Buka halaman">Go</button>';
+            $html .= '</form>';
+        }
+    }
+    $html .= '</div></div>';
+    return $html;
+}
+
+// Guard CSV export cells against Excel/Calc formula injection (CWE-1236)
+function csv_safe_cell($value): string {
+    $str = (string)$value;
+    if ($str === '') return '';
+    if (preg_match('/^[=+\t\r@]/', $str)) {
+        return "'" . $str;
+    }
+    if (str_starts_with($str, '-') && !is_numeric($str)) {
+        return "'" . $str;
+    }
+    return $str;
+}
+
+function csv_safe_row(array $row): array {
+    return array_map('csv_safe_cell', $row);
 }
 
 // Resolve company code by ID (or active company) for document numbering
@@ -209,6 +418,9 @@ function update_stock(int $item_id, int $location_id, int $delta, ?int $company_
     $st->bind_param('iiiii', $item_id, $location_id, $company_id, $delta, $delta);
     $result = $st->execute();
     $st->close();
+    if ($result && isset($_SESSION['low_stock_cache'][$company_id])) {
+        unset($_SESSION['low_stock_cache'][$company_id]);
+    }
     return $result;
 }
 

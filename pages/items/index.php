@@ -6,36 +6,37 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('items.view');
 $db = getDB();
 
-$search = req_str('q');
+$search     = grid_search_term('q');
 $cat_filter = req_int('category_id');
-$page = max(1, req_int('page', 1));
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
+$active_comp_code = current_company()['code'] ?? 'MSP';
 
-$where_parts = ['i.is_active=1', '(i.company_id IS NULL OR i.company_id=?)'];
-$params = [&$active_cid];
-$types  = 'i';
-if ($search)     { $where_parts[] = '(i.name LIKE ? OR i.code LIKE ?)'; $like="%$search%"; $params[]=&$like; $params[]=&$like; $types.='ss'; }
-if ($cat_filter) { $where_parts[] = 'i.category_id=?'; $params[]=&$cat_filter; $types.='i'; }
+$where_parts = ['i.is_active=1'];
+$params = [];
+$types  = '';
+if ($search)     { $where_parts[] = '(i.name LIKE ? OR i.code LIKE ?)'; $like = '%' . escape_like($search) . '%'; $params[] = &$like; $params[] = &$like; $types .= 'ss'; }
+if ($cat_filter) { $where_parts[] = 'i.category_id=?'; $params[] = &$cat_filter; $types .= 'i'; }
 $where = 'WHERE ' . implode(' AND ', $where_parts);
 
 $cq = $db->prepare("SELECT COUNT(*) FROM items i $where");
 if ($types) $cq->bind_param($types, ...$params);
 $cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
 
-$pag = paginate($total, $page);
-$offset = $pag['offset']; $limit = PER_PAGE;
-$types2 = $types.'ii';
-$p2 = $params; $p2[]=&$limit; $p2[]=&$offset;
+$pag = paginate($total, $page, $per_page);
+$offset = $pag['offset']; $limit = $pag['per_page'];
+$types2 = $types . 'ii';
+$p2 = $params; $p2[] = &$limit; $p2[] = &$offset;
 
 $st = $db->prepare("SELECT i.*, c.name AS cat_name, u.abbreviation AS unit_abbr,
-    comp.code AS comp_code,
-    COALESCE(SUM(s.quantity),0) AS total_stock
-    FROM items i
+    COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id=$active_cid), 0) AS total_stock
+    FROM (SELECT i.id FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?) pg
+    JOIN items i ON i.id = pg.id
     JOIN categories c ON c.id=i.category_id
     JOIN units u ON u.id=i.unit_id
-    LEFT JOIN companies comp ON comp.id=i.company_id
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$active_cid
-    $where GROUP BY i.id ORDER BY i.code LIMIT ? OFFSET ?");
+    ORDER BY i.code");
 $st->bind_param($types2, ...$p2);
 $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -84,7 +85,7 @@ include __DIR__ . '/../../includes/header.php';
     <table class="table mb-0">
       <thead>
         <tr><th><?php if(can('items.labels')):?><input class="form-check-input" type="checkbox" onclick="document.querySelectorAll('[name=\'id[]\']').forEach(x=>x.checked=this.checked)"><?php else:?>#<?php endif;?></th><th>Foto</th><th>Kode</th><th>Nama Barang</th><th>Kategori</th><th>Satuan</th>
-        <th class="text-end">Stok</th><th class="text-end">Harga Beli</th><th class="text-end">Harga Jual</th><th class="text-center">Aksi</th></tr>
+        <th class="text-end">Stok (<?= htmlspecialchars($active_comp_code) ?>)</th><th class="text-end">Harga Beli</th><th class="text-end">Harga Jual</th><th class="text-center">Aksi</th></tr>
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
@@ -102,14 +103,7 @@ include __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
           </td>
           <td><code class="small"><?= htmlspecialchars($r['code']) ?></code></td>
-          <td>
-            <div class="fw-semibold"><?= htmlspecialchars($r['name']) ?></div>
-            <?php if (empty($r['company_id'])): ?>
-              <span class="badge bg-info-subtle text-info border" style="font-size:0.65rem;">🌐 Global</span>
-            <?php else: ?>
-              <span class="badge bg-secondary-subtle text-secondary border" style="font-size:0.65rem;">🏢 <?= htmlspecialchars($r['comp_code'] ?? 'PT') ?></span>
-            <?php endif; ?>
-          </td>
+          <td class="fw-semibold"><?= htmlspecialchars($r['name']) ?></td>
           <td class="small"><?= htmlspecialchars($r['cat_name']) ?></td>
           <td class="small"><?= htmlspecialchars($r['unit_abbr']) ?></td>
           <td class="text-end">
@@ -134,9 +128,6 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?= count($rows) ?> dari <?= $total ?> barang</small>
-    <?= pagination_html($pag, '?' . http_build_query(['q'=>$search,'category_id'=>$cat_filter]) . '&page=%d') ?>
-  </div>
+  <?= grid_footer_html($pag, 'barang', ['q' => $search, 'category_id' => $cat_filter ?: '']) ?>
 </div>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>

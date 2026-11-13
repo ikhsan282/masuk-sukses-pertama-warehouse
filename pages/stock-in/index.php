@@ -6,30 +6,37 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('stock_in.view');
 $db = getDB();
 
-$search = req_str('q');
-$date_from = req_str('date_from');
-$date_to   = req_str('date_to');
-$page = max(1, req_int('page', 1));
+$search     = grid_search_term('q');
+$date_from  = req_date('date_from');
+$date_to    = req_date('date_to');
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
 
 $where_parts = ['si.company_id = ?'];
 $params=[&$active_cid]; $types='i';
-if ($search)    { $where_parts[]='(si.reference_no LIKE ? OR s.name LIKE ?)'; $like="%$search%"; $params[]=&$like;$params[]=&$like;$types.='ss'; }
+$join_sup_filter = '';
+if ($search)    { $join_sup_filter = 'JOIN suppliers s ON s.id=si.supplier_id'; $where_parts[]='(si.reference_no LIKE ? OR s.name LIKE ?)'; $like='%'.escape_like($search).'%'; $params[]=&$like;$params[]=&$like;$types.='ss'; }
 if ($date_from) { $where_parts[]='si.transaction_date >= ?'; $params[]=&$date_from;$types.='s'; }
 if ($date_to)   { $where_parts[]='si.transaction_date <= ?'; $params[]=&$date_to;$types.='s'; }
 $where = 'WHERE '.implode(' AND ',$where_parts);
 
-$cq=$db->prepare("SELECT COUNT(*) FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id $where");
+$cq=$db->prepare("SELECT COUNT(*) FROM stock_in si $join_sup_filter $where");
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit;$p2[]=&$offset;
 $st=$db->prepare("SELECT si.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name,
     (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS item_count,
     (SELECT SUM(d.quantity*d.buy_price) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_value
-    FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
-    JOIN users u ON u.id=si.user_id $where ORDER BY si.id DESC LIMIT ? OFFSET ?");
+    FROM (SELECT si.id FROM stock_in si $join_sup_filter $where ORDER BY si.id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_in si ON si.id=pg.id
+    JOIN suppliers s ON s.id=si.supplier_id
+    JOIN locations l ON l.id=si.location_id
+    JOIN users u ON u.id=si.user_id
+    ORDER BY si.id DESC");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -83,9 +90,6 @@ $page_title='Barang Masuk'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transaksi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['q'=>$search,'date_from'=>$date_from,'date_to'=>$date_to]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'transaksi', ['q' => $search, 'date_from' => $date_from, 'date_to' => $date_to]) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php';?>

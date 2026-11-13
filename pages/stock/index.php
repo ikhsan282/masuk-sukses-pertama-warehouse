@@ -6,43 +6,74 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('stock.view');
 $db = getDB();
 
-$search     = req_str('q');
+$search     = grid_search_term('q');
 $loc_filter = req_int('location_id');
 $page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $cf         = resolve_company_filter('company_id');
 $comp_in    = $cf['sql_in'];
 
-$where_parts = ['i.is_active=1', "(i.company_id IS NULL OR i.company_id IN ($comp_in))"];
+$where_parts = ['i.is_active=1'];
 $params=[]; $types='';
-if ($search)     { $where_parts[]='(i.name LIKE ? OR i.code LIKE ?)'; $like="%$search%"; $params[]=&$like; $params[]=&$like; $types.='ss'; }
+if ($search)     { $where_parts[]='(i.name LIKE ? OR i.code LIKE ?)'; $like='%'.escape_like($search).'%'; $params[]=&$like; $params[]=&$like; $types.='ss'; }
 if ($loc_filter) { $where_parts[]='s.location_id=?'; $params[]=&$loc_filter; $types.='i'; }
 $where = 'WHERE '.implode(' AND ',$where_parts);
 
-$cq=$db->prepare("SELECT COUNT(DISTINCT i.id) FROM items i
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where");
+if ($loc_filter) {
+    $cq = $db->prepare("SELECT COUNT(DISTINCT i.id) FROM items i
+        INNER JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where");
+} else {
+    $cq = $db->prepare("SELECT COUNT(*) FROM items i $where");
+}
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
 
-$st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock,
-    c.name AS cat_name, u.abbreviation,
-    COALESCE(SUM(s.quantity),0) AS total_stock,
-    COALESCE(SUM(s.quantity * i.buy_price),0) AS stock_value
-    FROM items i
-    JOIN categories c ON c.id=i.category_id
-    JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in)
-    $where GROUP BY i.id ORDER BY i.code LIMIT ? OFFSET ?");
+if ($loc_filter) {
+    $st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock,
+        c.name AS cat_name, u.abbreviation,
+        COALESCE(SUM(s.quantity),0) AS total_stock,
+        COALESCE(SUM(s.quantity * i.buy_price),0) AS stock_value
+        FROM (
+            SELECT DISTINCT i.id, i.code FROM items i
+            INNER JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in)
+            $where ORDER BY i.code LIMIT ? OFFSET ?
+        ) pg
+        JOIN items i ON i.id=pg.id
+        JOIN categories c ON c.id=i.category_id
+        JOIN units u ON u.id=i.unit_id
+        INNER JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) AND s.location_id=".(int)$loc_filter."
+        GROUP BY i.id, i.code, i.name, i.min_stock, c.name, u.abbreviation
+        ORDER BY i.code");
+} else {
+    $st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock,
+        c.name AS cat_name, u.abbreviation,
+        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock,
+        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) * i.buy_price AS stock_value
+        FROM (SELECT i.id FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?) pg
+        JOIN items i ON i.id=pg.id
+        JOIN categories c ON c.id=i.category_id
+        JOIN units u ON u.id=i.unit_id
+        ORDER BY i.code");
+}
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
 
-// Summary stats for selected company scope
-$stat_zero = $db->query("SELECT COUNT(DISTINCT i.id) FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id IN ($comp_in)) GROUP BY i.id HAVING COALESCE(SUM(s.quantity),0)=0")->num_rows;
-$stat_low  = $db->query("SELECT COUNT(*) FROM items i LEFT JOIN (SELECT item_id,SUM(quantity) total_stock FROM stock WHERE company_id IN ($comp_in) GROUP BY item_id) s ON s.item_id=i.id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id IN ($comp_in)) AND COALESCE(s.total_stock,0) > 0 AND COALESCE(s.total_stock,0) <= i.min_stock")->fetch_row()[0];
+// Summary stats in a single indexed pass without streaming rowsets to PHP
+$stat_row = $db->query("SELECT
+    COALESCE(SUM(qty = 0), 0) AS cnt_zero,
+    COALESCE(SUM(qty > 0 AND qty <= min_stock), 0) AS cnt_low
+    FROM (
+        SELECT i.min_stock, COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS qty
+        FROM items i WHERE i.is_active=1
+    ) t")->fetch_assoc();
+$stat_zero = (int)($stat_row['cnt_zero'] ?? 0);
+$stat_low  = (int)($stat_row['cnt_low'] ?? 0);
 $stat_val  = $db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id IN ($comp_in)")->fetch_row()[0];
 
 $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
@@ -124,9 +155,6 @@ $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> barang</small>
-    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'q'=>$search,'location_id'=>$loc_filter]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'barang', ['company_id' => $cf['param_value'], 'q' => $search, 'location_id' => $loc_filter ?: '']) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

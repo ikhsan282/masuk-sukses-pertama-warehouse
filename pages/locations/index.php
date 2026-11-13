@@ -45,9 +45,28 @@ if (req_int('edit')) {
     $st->execute(); $edit_row=$st->get_result()->fetch_assoc(); $st->close();
 }
 
-$rows = $db->query('SELECT l.*, COALESCE(SUM(s.quantity),0) AS total_stock
-    FROM locations l LEFT JOIN stock s ON s.location_id=l.id
-    GROUP BY l.id ORDER BY l.code')->fetch_all(MYSQLI_ASSOC);
+$search   = grid_search_term('q');
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$where    = $search ? 'WHERE l.name LIKE ? OR l.code LIKE ?' : '';
+$cq = $db->prepare("SELECT COUNT(*) FROM locations l $where");
+if ($search) { $like = '%' . escape_like($search) . '%'; $cq->bind_param('ss', $like, $like); }
+$cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+
+$pag    = paginate($total, $page, $per_page);
+$offset = $pag['offset'];
+$limit  = $pag['per_page'];
+$st = $db->prepare("SELECT l.*,
+    (SELECT COALESCE(SUM(s.quantity),0) FROM stock s WHERE s.location_id = l.id) AS total_stock
+    FROM locations l
+    JOIN (SELECT l.id FROM locations l $where ORDER BY l.code LIMIT ? OFFSET ?) pg ON pg.id = l.id
+    ORDER BY l.code");
+if ($search) { $st->bind_param('ssii', $like, $like, $limit, $offset); }
+else { $st->bind_param('ii', $limit, $offset); }
+$st->execute();
+$rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+$st->close();
 
 $page_title='Lokasi Rak/Bin'; include __DIR__.'/../../includes/header.php';
 ?>
@@ -61,6 +80,15 @@ $page_title='Lokasi Rak/Bin'; include __DIR__.'/../../includes/header.php';
 </div>
 
 <div class="card table-card">
+  <div class="card-header bg-white py-2">
+    <form class="d-flex gap-2" method="GET">
+      <input type="text" name="q" class="form-control form-control-sm" style="max-width:260px"
+        placeholder="Cari kode / nama lokasi..." value="<?= htmlspecialchars($search) ?>">
+      <input type="hidden" name="per_page" value="<?= (int)$pag['per_page'] ?>">
+      <button class="btn btn-sm btn-outline-secondary">Cari</button>
+      <?php if ($search): ?><a href="?per_page=<?= (int)$pag['per_page'] ?>" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a><?php endif; ?>
+    </form>
+  </div>
   <div class="table-responsive">
     <table class="table mb-0">
       <thead><tr><th>#</th><th>Kode</th><th>Nama Lokasi</th><th>Deskripsi</th><th class="text-center">Total Stok</th><th class="text-center">Status</th><th class="text-center">Aksi</th></tr></thead>
@@ -69,7 +97,7 @@ $page_title='Lokasi Rak/Bin'; include __DIR__.'/../../includes/header.php';
         <tr><td colspan="7" class="text-center text-muted py-4">Tidak ada data</td></tr>
       <?php else: foreach($rows as $i=>$r):?>
         <tr>
-          <td class="small text-muted"><?=$i+1?></td>
+          <td class="small text-muted"><?= $pag['offset'] + $i + 1 ?></td>
           <td><span class="badge bg-primary-subtle text-primary border"><?=htmlspecialchars($r['code'])?></span></td>
           <td class="fw-semibold"><?=htmlspecialchars($r['name'])?></td>
           <td class="small text-muted"><?=htmlspecialchars($r['description']??'')?></td>
@@ -93,6 +121,7 @@ $page_title='Lokasi Rak/Bin'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
+  <?= grid_footer_html($pag, 'lokasi', ['q' => $search]) ?>
 </div>
 
 <?php $is_edit=!is_null($edit_row);?>

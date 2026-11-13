@@ -7,10 +7,12 @@ require_perm('reports.view');
 ob_start();
 $db = getDB();
 
-$date_from   = req_str('date_from', date('Y-m-01'));
-$date_to     = req_str('date_to',   date('Y-m-d'));
+$date_from   = req_date('date_from', date('Y-m-01'));
+$date_to     = req_date('date_to',   date('Y-m-d'));
 $sup_filter  = req_int('supplier_id');
 $page        = max(1, req_int('page', 1));
+$per_page    = grid_per_page();
+grid_apply_timeout($db);
 $cf          = resolve_company_filter('company_id');
 $comp_in     = $cf['sql_in'];
 
@@ -22,7 +24,7 @@ $where='WHERE '.implode(' AND ',$where_parts);
 $cq=$db->prepare("SELECT COUNT(*) FROM stock_in si $where");
 $cq->bind_param($types,...$params);$cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page);$offset=$pag['offset'];$limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page);$offset=$pag['offset'];$limit=$pag['per_page'];
 $t2=$types.'ii';$p2=$params;$p2[]=&$limit;$p2[]=&$offset;
 
 $st=$db->prepare("SELECT si.id, si.reference_no, si.transaction_date, s.name AS supplier_name,
@@ -30,9 +32,11 @@ $st=$db->prepare("SELECT si.id, si.reference_no, si.transaction_date, s.name AS 
     (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS item_count,
     (SELECT SUM(d.quantity) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_qty,
     (SELECT SUM(d.quantity*d.buy_price) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_value
-    FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
+    FROM (SELECT si.id FROM stock_in si $where ORDER BY si.transaction_date DESC, si.id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_in si ON si.id=pg.id
+    JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
     JOIN users u ON u.id=si.user_id LEFT JOIN companies comp ON comp.id=si.company_id
-    $where ORDER BY si.transaction_date DESC, si.id DESC LIMIT ? OFFSET ?");
+    ORDER BY si.transaction_date DESC, si.id DESC");
 $st->bind_param($t2,...$p2);$st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC);$st->close();
 
@@ -106,9 +110,6 @@ $page_title='Laporan Barang Masuk'; include __DIR__.'/../../includes/header.php'
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transaksi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'supplier_id'=>$sup_filter]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'transaksi', ['company_id' => $cf['param_value'], 'date_from' => $date_from, 'date_to' => $date_to, 'supplier_id' => $sup_filter ?: '']) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

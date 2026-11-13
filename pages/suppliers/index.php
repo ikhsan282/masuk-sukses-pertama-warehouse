@@ -53,15 +53,18 @@ if (req_int('edit')) {
     $st->execute(); $edit_row=$st->get_result()->fetch_assoc(); $st->close();
 }
 
-$search = req_str('q');
+$search   = grid_search_term('q');
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
 $where  = $search ? "WHERE name LIKE ? OR code LIKE ? OR contact_person LIKE ?" : '';
 $cq=$db->prepare("SELECT COUNT(*) FROM suppliers $where");
-if($search){$like="%$search%";$cq->bind_param('sss',$like,$like,$like);}
+if($search){$like='%'.escape_like($search).'%';$cq->bind_param('sss',$like,$like,$like);}
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
-$pag=paginate($total,max(1,req_int('page',1)));
-$offset=$pag['offset'];$limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page);
+$offset=$pag['offset'];$limit=$pag['per_page'];
 $st=$db->prepare("SELECT * FROM suppliers $where ORDER BY name LIMIT ? OFFSET ?");
-if($search){$like="%$search%";$st->bind_param('sssii',$like,$like,$like,$limit,$offset);}
+if($search){$st->bind_param('sssii',$like,$like,$like,$limit,$offset);}
 else{$st->bind_param('ii',$limit,$offset);}
 $st->execute(); $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -117,10 +120,7 @@ $page_title='Supplier'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> supplier</small>
-    <?=pagination_html($pag,'?'.($search?"q={$search}&":'').'page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'supplier', ['q' => $search]) ?>
 </div>
 
 <?php $is_edit=!is_null($edit_row);?>

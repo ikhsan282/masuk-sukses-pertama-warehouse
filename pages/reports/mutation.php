@@ -7,13 +7,16 @@ require_perm('reports.view');
 ob_start();
 $db = getDB();
 
-$date_from  = req_str('date_from', date('Y-m-01'));
-$date_to    = req_str('date_to',   date('Y-m-d'));
-$item_filter= req_int('item_id');
-$type_filter= req_str('type');
-$page       = max(1, req_int('page', 1));
-$cf         = resolve_company_filter('company_id');
-$comp_in    = $cf['sql_in'];
+$date_from   = req_date('date_from', date('Y-m-01'));
+$date_to     = req_date('date_to',   date('Y-m-d'));
+$item_filter = req_int('item_id');
+$type_raw    = req_str('type');
+$type_filter = in_array($type_raw, ['in', 'out', 'transfer_in', 'transfer_out', 'adjustment'], true) ? $type_raw : '';
+$page        = max(1, req_int('page', 1));
+$per_page    = grid_per_page();
+grid_apply_timeout($db);
+$cf          = resolve_company_filter('company_id');
+$comp_in     = $cf['sql_in'];
 
 $where_parts = ["m.company_id IN ($comp_in)", 'm.created_at >= ?', 'm.created_at <= ?'];
 $df = $date_from.' 00:00:00'; $dt = $date_to.' 23:59:59';
@@ -26,19 +29,32 @@ $cq=$db->prepare("SELECT COUNT(*) FROM mutations m $where");
 $cq->bind_param($types,...$params); $cq->execute();
 $cq->bind_result($total); $cq->fetch(); $cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
 
 $st=$db->prepare("SELECT m.*, i.code AS item_code, i.name AS item_name,
     u.abbreviation, l.name AS loc_name, us.name AS user_name, comp.code AS comp_code
-    FROM mutations m JOIN items i ON i.id=m.item_id JOIN units u ON u.id=i.unit_id
+    FROM (SELECT m.id FROM mutations m $where ORDER BY m.id DESC LIMIT ? OFFSET ?) pg
+    JOIN mutations m ON m.id=pg.id
+    JOIN items i ON i.id=m.item_id JOIN units u ON u.id=i.unit_id
     JOIN locations l ON l.id=m.location_id JOIN users us ON us.id=m.user_id
     LEFT JOIN companies comp ON comp.id=m.company_id
-    $where ORDER BY m.id DESC LIMIT ? OFFSET ?");
+    ORDER BY m.id DESC");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
-$items_list = $db->query("SELECT id,code,name FROM items WHERE is_active=1 AND (company_id IS NULL OR company_id IN ($comp_in)) ORDER BY name")->fetch_all(MYSQLI_ASSOC);
+$items_list = $db->query("SELECT id,code,name FROM items WHERE is_active=1 ORDER BY name LIMIT 500")->fetch_all(MYSQLI_ASSOC);
+if ($item_filter) {
+    $has_sel = false;
+    foreach ($items_list as $it) { if ((int)$it['id'] === $item_filter) { $has_sel = true; break; } }
+    if (!$has_sel) {
+        $si = $db->prepare('SELECT id,code,name FROM items WHERE id=? LIMIT 1');
+        $si->bind_param('i', $item_filter);
+        $si->execute();
+        if ($sel_row = $si->get_result()->fetch_assoc()) array_unshift($items_list, $sel_row);
+        $si->close();
+    }
+}
 $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
@@ -56,7 +72,7 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
       <?= company_filter_select_html('company_id', $cf['param_value']) ?>
       <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
       <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
-      <select name="item_id" class="form-select form-select-sm ts-select" style="max-width:200px">
+      <select name="item_id" class="form-select form-select-sm ts-select" data-remote-items="1" style="max-width:200px">
         <option value="">Semua Barang</option>
         <?php foreach($items_list as $it): ?>
         <option value="<?=$it['id']?>" <?=$item_filter==$it['id']?'selected':''?>><?=htmlspecialchars($it['name'])?></option>
@@ -98,9 +114,6 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> mutasi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'mutasi', ['company_id' => $cf['param_value'], 'date_from' => $date_from, 'date_to' => $date_to, 'item_id' => $item_filter ?: '', 'type' => $type_filter]) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

@@ -107,13 +107,24 @@ if (req_int('edit')) {
     $st->close();
 }
 
-$rows = $db->query('SELECT c.*, 
-    COUNT(DISTINCT s.item_id) AS total_items,
-    COALESCE(SUM(s.quantity), 0) AS total_stock
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$total    = (int)$db->query('SELECT COUNT(*) FROM companies')->fetch_row()[0];
+$pag      = paginate($total, $page, $per_page);
+$offset   = $pag['offset'];
+$limit    = $pag['per_page'];
+
+$st = $db->prepare('SELECT c.*,
+    (SELECT COUNT(DISTINCT s.item_id) FROM stock s WHERE s.company_id = c.id) AS total_items,
+    (SELECT COALESCE(SUM(s.quantity), 0) FROM stock s WHERE s.company_id = c.id) AS total_stock
     FROM companies c
-    LEFT JOIN stock s ON s.company_id = c.id
-    GROUP BY c.id
-    ORDER BY c.is_holding DESC, c.name ASC')->fetch_all(MYSQLI_ASSOC);
+    JOIN (SELECT id FROM companies ORDER BY is_holding DESC, name ASC LIMIT ? OFFSET ?) pg ON pg.id = c.id
+    ORDER BY c.is_holding DESC, c.name ASC');
+$st->bind_param('ii', $limit, $offset);
+$st->execute();
+$rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+$st->close();
 
 $page_title = 'Kelola Perusahaan (PT)';
 include __DIR__ . '/../../includes/header.php';
@@ -154,13 +165,10 @@ include __DIR__ . '/../../includes/header.php';
         <tr><td colspan="9" class="text-center text-muted py-4">Belum ada data perusahaan</td></tr>
       <?php else: foreach ($rows as $i => $r): ?>
         <tr>
-          <td class="small text-muted"><?= $i + 1 ?></td>
+          <td class="small text-muted"><?= $pag['offset'] + $i + 1 ?></td>
           <td><span class="badge bg-primary-subtle text-primary border"><?= htmlspecialchars($r['code']) ?></span></td>
           <td>
             <div class="fw-bold text-dark"><?= htmlspecialchars($r['name']) ?></div>
-            <?php if (current_company_id() === (int)$r['id']): ?>
-              <span class="badge text-bg-success" style="font-size:0.7rem;"><i class="bi bi-check-circle me-1"></i>Sedang Aktif</span>
-            <?php endif; ?>
           </td>
           <td class="small">
             <?php if (!empty($r['phone'])): ?><div><i class="bi bi-telephone text-muted me-1"></i><?= htmlspecialchars($r['phone']) ?></div><?php endif; ?>
@@ -178,9 +186,6 @@ include __DIR__ . '/../../includes/header.php';
             <?= $r['is_active'] ? '<span class="badge badge-ok">Aktif</span>' : '<span class="badge badge-zero">Nonaktif</span>' ?>
           </td>
           <td class="text-center text-nowrap">
-            <a href="<?= APP_URL ?>/auth/switch-company.php?id=<?= $r['id'] ?>" class="btn btn-sm btn-outline-success" title="Beralih ke PT ini">
-              <i class="bi bi-box-arrow-in-right me-1"></i>Pilih
-            </a>
             <?php if (can('companies.edit')): ?>
             <a href="?edit=<?= $r['id'] ?>" class="btn btn-action btn-outline-primary" title="Edit"><i class="bi bi-pencil"></i></a>
             <?php endif; ?>
@@ -200,6 +205,7 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
+  <?= grid_footer_html($pag, 'perusahaan') ?>
 </div>
 
 <!-- Modal Form (Tambah / Edit) -->

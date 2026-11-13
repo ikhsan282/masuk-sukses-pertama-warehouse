@@ -9,12 +9,15 @@ $db = getDB();
 
 $loc_filter = req_int('location_id');
 $cat_filter = req_int('category_id');
-$show       = req_str('show'); // all | low | zero
+$show_raw   = req_str('show');
+$show       = in_array($show_raw, ['all', 'low', 'zero'], true) ? $show_raw : '';
 $page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $cf         = resolve_company_filter('company_id');
 $comp_in    = $cf['sql_in'];
 
-$where_parts = ['i.is_active=1', "(i.company_id IS NULL OR i.company_id IN ($comp_in))"];
+$where_parts = ['i.is_active=1'];
 $params=[]; $types='';
 if ($cat_filter) { $where_parts[]='i.category_id=?'; $params[]=&$cat_filter; $types.='i'; }
 if ($loc_filter) { $where_parts[]='s.location_id=?';  $params[]=&$loc_filter; $types.='i'; }
@@ -24,22 +27,40 @@ $having = '';
 if ($show==='low')  $having = 'HAVING total_stock > 0 AND total_stock <= MAX(i.min_stock)';
 if ($show==='zero') $having = 'HAVING total_stock = 0';
 
-$cq=$db->prepare("SELECT COUNT(*) FROM (
-    SELECT i.id, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock
-    FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where GROUP BY i.id, i.min_stock $having) sub");
-if($types)$cq->bind_param($types,...$params);
-$cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
+if (!$loc_filter && $having === '') {
+    $cq = $db->prepare("SELECT COUNT(*) FROM items i $where");
+    if ($types) $cq->bind_param($types, ...$params);
+    $cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
-$t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
+    $pag = paginate($total, $page, $per_page); $offset = $pag['offset']; $limit = $pag['per_page'];
+    $t2 = $types . 'ii'; $p2 = $params; $p2[] = &$limit; $p2[] = &$offset;
 
-$st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price,
-    c.name AS cat_name, u.abbreviation,
-    COALESCE(SUM(s.quantity),0) AS total_stock,
-    COALESCE(SUM(s.quantity)*i.buy_price,0) AS stock_value
-    FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
-    LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where
-    GROUP BY i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price, c.name, u.abbreviation $having ORDER BY i.code LIMIT ? OFFSET ?");
+    $st = $db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price,
+        c.name AS cat_name, u.abbreviation,
+        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock,
+        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) * i.buy_price AS stock_value
+        FROM (SELECT i.id FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?) pg
+        JOIN items i ON i.id=pg.id
+        JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
+        ORDER BY i.code");
+} else {
+    $cq = $db->prepare("SELECT COUNT(*) FROM (
+        SELECT i.id, i.min_stock, COALESCE(SUM(s.quantity),0) AS total_stock
+        FROM items i LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where GROUP BY i.id, i.min_stock $having) sub");
+    if ($types) $cq->bind_param($types, ...$params);
+    $cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+
+    $pag = paginate($total, $page, $per_page); $offset = $pag['offset']; $limit = $pag['per_page'];
+    $t2 = $types . 'ii'; $p2 = $params; $p2[] = &$limit; $p2[] = &$offset;
+
+    $st = $db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price,
+        c.name AS cat_name, u.abbreviation,
+        COALESCE(SUM(s.quantity),0) AS total_stock,
+        COALESCE(SUM(s.quantity)*i.buy_price,0) AS stock_value
+        FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
+        LEFT JOIN stock s ON s.item_id=i.id AND s.company_id IN ($comp_in) $where
+        GROUP BY i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price, c.name, u.abbreviation $having ORDER BY i.code LIMIT ? OFFSET ?");
+}
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -114,9 +135,6 @@ $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> barang</small>
-    <?=pagination_html($pag,'?'.http_build_query(['company_id'=>$cf['param_value'],'location_id'=>$loc_filter,'category_id'=>$cat_filter,'show'=>$show]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'barang', ['company_id' => $cf['param_value'], 'location_id' => $loc_filter ?: '', 'category_id' => $cat_filter ?: '', 'show' => $show]) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php'; ?>

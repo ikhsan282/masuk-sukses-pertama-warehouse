@@ -45,7 +45,18 @@ if (req_int('edit')) {
     $st->execute(); $edit_row=$st->get_result()->fetch_assoc(); $st->close();
 }
 
-$rows = $db->query('SELECT * FROM units ORDER BY name')->fetch_all(MYSQLI_ASSOC);
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$total    = (int)$db->query('SELECT COUNT(*) FROM units')->fetch_row()[0];
+$pag      = paginate($total, $page, $per_page);
+$offset   = $pag['offset'];
+$limit    = $pag['per_page'];
+$st = $db->prepare('SELECT * FROM units ORDER BY name LIMIT ? OFFSET ?');
+$st->bind_param('ii', $limit, $offset);
+$st->execute();
+$rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+$st->close();
 $page_title = 'Satuan Barang';
 include __DIR__ . '/../../includes/header.php';
 ?>
@@ -67,7 +78,7 @@ include __DIR__ . '/../../includes/header.php';
         <tr><td colspan="4" class="text-center text-muted py-4">Tidak ada data</td></tr>
       <?php else: foreach ($rows as $i => $r): ?>
         <tr>
-          <td class="small text-muted"><?= $i+1 ?></td>
+          <td class="small text-muted"><?= $pag['offset'] + $i + 1 ?></td>
           <td class="fw-semibold"><?= htmlspecialchars($r['name']) ?></td>
           <td><span class="badge bg-info-subtle text-info border"><?= htmlspecialchars($r['abbreviation']) ?></span></td>
           <td class="text-center">
@@ -88,6 +99,7 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
+  <?= grid_footer_html($pag, 'satuan') ?>
 </div>
 
 <?php $is_edit = !is_null($edit_row); ?>

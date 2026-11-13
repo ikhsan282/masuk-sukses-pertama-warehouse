@@ -9,13 +9,15 @@ $page_title   = $page_title ?? APP_NAME;
 $low_stock_count = 0;
 if ($current_user && can('stock.alerts')) {
     $cid = current_company_id();
-    $low_stock_count = (int)getDB()->query("SELECT COUNT(*) FROM (
-        SELECT i.id FROM items i 
-        LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid 
-        WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) 
-        GROUP BY i.id, i.min_stock 
-        HAVING COALESCE(SUM(s.quantity),0) <= i.min_stock
-    ) low")->fetch_row()[0];
+    $cached = $_SESSION['low_stock_cache'][$cid] ?? null;
+    if (is_array($cached) && (time() - (int)($cached['ts'] ?? 0)) < 60) {
+        $low_stock_count = (int)$cached['count'];
+    } else {
+        $low_stock_count = (int)getDB()->query("SELECT COUNT(*) FROM items i
+            WHERE i.is_active=1
+            AND COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id=$cid), 0) <= i.min_stock")->fetch_row()[0];
+        $_SESSION['low_stock_cache'][$cid] = ['count' => $low_stock_count, 'ts' => time()];
+    }
 }
 ?><!DOCTYPE html>
 <html lang="id">

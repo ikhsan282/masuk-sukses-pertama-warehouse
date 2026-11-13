@@ -6,6 +6,10 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('transfers.create');
 $db = getDB();
 
+$allowed_from_ids = array_values(array_filter(array_map(fn($c) => (int)$c['id'], user_companies())));
+$all_companies    = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
+$active_comp_ids  = array_map(fn($c) => (int)$c['id'], $all_companies);
+
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -19,6 +23,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $from_company_id = req_int('from_company_id') ?: current_company_id();
     $to_company_id   = req_int('to_company_id') ?: $from_company_id;
 
+    if (!in_array($from_company_id, $allowed_from_ids, true)) {
+        $errors[] = 'PT asal tidak valid atau di luar hak akses Anda.';
+    }
+    if (!in_array($to_company_id, $active_comp_ids, true)) {
+        $errors[] = 'PT tujuan tidak valid atau tidak aktif.';
+    }
     if (!$from_loc)          $errors[] = 'Lokasi asal wajib dipilih.';
     if (!$to_loc)            $errors[] = 'Lokasi tujuan wajib dipilih.';
     if ($from_loc===$to_loc && $from_company_id===$to_company_id) {
@@ -56,10 +66,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st2->bind_param('iii',$tr_id,$iid,$qty); $st2->execute();
                 update_stock($iid,$from_loc,-$qty, $from_company_id);
                 update_stock($iid,$to_loc,$qty, $to_company_id);
-                // If transferring across PTs, ensure the item is accessible globally if it was restricted to source PT
-                if ($from_company_id !== $to_company_id) {
-                    $db->query("UPDATE items SET company_id = NULL WHERE id = " . (int)$iid . " AND company_id IS NOT NULL");
-                }
                 log_mutation($iid,$from_loc,'transfer_out',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes, $from_company_id);
                 log_mutation($iid,$to_loc,'transfer_in',$qty,$ref_no,'transfer',$tr_id,$user_id,$notes, $to_company_id);
             }
@@ -74,9 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $active_cid = current_company_id();
-$all_companies = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
-$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id = $active_cid) ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
+$items     = $db->query("SELECT i.id,i.code,i.name,u.abbreviation FROM items i JOIN units u ON u.id=i.unit_id WHERE i.is_active=1 ORDER BY i.name")->fetch_all(MYSQLI_ASSOC);
+
+$stock_map = [];
+if (!empty($allowed_from_ids)) {
+    $in_sql = implode(',', $allowed_from_ids);
+    $sq = $db->query("SELECT company_id, location_id, item_id, quantity FROM stock WHERE company_id IN ($in_sql) AND quantity > 0");
+    while ($r = $sq->fetch_assoc()) {
+        $stock_map[(int)$r['company_id']][(int)$r['location_id']][(int)$r['item_id']] = (int)$r['quantity'];
+    }
+}
 $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
 ?>
 <div class="page-header">
@@ -157,7 +171,7 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
       </div>
       <div class="table-responsive">
         <table class="table mb-0">
-          <thead><tr><th style="min-width:260px">Barang</th><th style="min-width:100px">Qty</th><th></th></tr></thead>
+          <thead><tr><th style="min-width:260px">Barang</th><th style="min-width:120px">Qty</th><th></th></tr></thead>
           <tbody id="itemsBody">
             <tr>
               <td>
@@ -172,6 +186,7 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
                     <i class="bi bi-upc-scan"></i>
                   </button>
                 </div>
+                <div class="stock-hint small text-muted mt-1"></div>
               </td>
               <td><input type="number" name="quantity[0]" class="form-control form-control-sm item-qty" min="1" value="1" required></td>
               <td><button type="button" class="btn btn-sm btn-outline-danger remove-row"><i class="bi bi-trash"></i></button></td>
@@ -187,5 +202,35 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
   <a href="<?=APP_URL?>/pages/transfers/index.php" class="btn btn-outline-secondary">Batal</a>
 </div>
 </form>
+<script>
+const transferStockMap = <?= json_encode($stock_map) ?>;
+function updateTransferHints() {
+  const fromComp = document.querySelector('[name="from_company_id"]')?.value || '';
+  const fromLoc  = document.querySelector('[name="from_location_id"]')?.value || '';
+  const locStocks = transferStockMap[fromComp]?.[fromLoc] || {};
+  document.querySelectorAll('#itemsBody tr').forEach(tr => {
+    const sel  = tr.querySelector('.item-select');
+    const hint = tr.querySelector('.stock-hint');
+    if (!sel || !hint) return;
+    if (!sel.value || !fromComp || !fromLoc) {
+      hint.textContent = '';
+      hint.className = 'stock-hint small text-muted mt-1';
+      return;
+    }
+    const avail = locStocks[sel.value] ?? 0;
+    hint.textContent = 'Stok tersedia di PT & lokasi asal: ' + avail.toLocaleString('id-ID');
+    hint.className = 'stock-hint small mt-1 ' + (avail > 0 ? 'text-success fw-semibold' : 'text-danger');
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelector('[name="from_company_id"]')?.addEventListener('change', updateTransferHints);
+  document.querySelector('[name="from_location_id"]')?.addEventListener('change', updateTransferHints);
+  document.getElementById('itemsBody')?.addEventListener('change', e => {
+    if (e.target.classList.contains('item-select')) updateTransferHints();
+  });
+  document.getElementById('addItemRow')?.addEventListener('click', () => setTimeout(updateTransferHints, 50));
+  updateTransferHints();
+});
+</script>
 <?php include __DIR__.'/../../includes/scanner-modal.php';?>
 <?php include __DIR__.'/../../includes/footer.php';?>

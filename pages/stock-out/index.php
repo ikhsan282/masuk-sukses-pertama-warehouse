@@ -6,14 +6,16 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('stock_out.view');
 $db = getDB();
 
-$search    = req_str('q');
-$date_from = req_str('date_from');
-$date_to   = req_str('date_to');
-$page      = max(1, req_int('page', 1));
+$search     = grid_search_term('q');
+$date_from  = req_date('date_from');
+$date_to    = req_date('date_to');
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
 
 $where_parts = ['so.company_id = ?']; $params=[&$active_cid]; $types='i';
-if ($search)    { $where_parts[]='so.reference_no LIKE ?'; $like="%$search%"; $params[]=&$like; $types.='s'; }
+if ($search)    { $where_parts[]='so.reference_no LIKE ?'; $like='%'.escape_like($search).'%'; $params[]=&$like; $types.='s'; }
 if ($date_from) { $where_parts[]='so.transaction_date >= ?'; $params[]=&$date_from; $types.='s'; }
 if ($date_to)   { $where_parts[]='so.transaction_date <= ?'; $params[]=&$date_to; $types.='s'; }
 $where='WHERE '.implode(' AND ',$where_parts);
@@ -22,13 +24,16 @@ $cq=$db->prepare("SELECT COUNT(*) FROM stock_out so $where");
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
 $st=$db->prepare("SELECT so.*, l.name AS location_name, u.name AS user_name,
     (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
     (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
-    FROM stock_out so JOIN locations l ON l.id=so.location_id
-    JOIN users u ON u.id=so.user_id $where ORDER BY so.id DESC LIMIT ? OFFSET ?");
+    FROM (SELECT so.id FROM stock_out so $where ORDER BY so.id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_out so ON so.id=pg.id
+    JOIN locations l ON l.id=so.location_id
+    JOIN users u ON u.id=so.user_id
+    ORDER BY so.id DESC");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -82,9 +87,6 @@ $page_title='Barang Keluar'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transaksi</small>
-    <?=pagination_html($pag,'?'.http_build_query(['q'=>$search,'date_from'=>$date_from,'date_to'=>$date_to]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'transaksi', ['q' => $search, 'date_from' => $date_from, 'date_to' => $date_to]) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php';?>

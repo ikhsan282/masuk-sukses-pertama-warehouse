@@ -16,8 +16,8 @@
 **PT Masuk Sukses Pertama (MSP)** merupakan perusahaan induk (*Holding*) yang menaungi beberapa anak perusahaan (PT) di dalamnya. Seluruh perusahaan dalam grup menggunakan fasilitas pergudangan fisik yang sama (*Shared Warehouse*), namun secara akuntansi, legalitas dokumen, dan kepemilikan aset, stok barang milik masing-masing PT harus tercatat secara **terpisah dan terisolasi**.
 
 ### Masalah yang Diselesaikan
-1. **Kepemilikan Stok di Rak Bersama**: Satu rak fisik (misal `RAK-A1`) menyimpan barang milik PT A, PT B, dan PT Induk sekaligus. Sistem harus mencegah PT A mengeluarkan atau meretur stok milik PT B meskipun barangnya sama dan berada di rak yang sama.
-2. **Katalog Barang Campuran (*Hybrid Catalog*)**: Ada barang komoditas umum yang dipakai oleh semua PT (*Global Item*), dan ada barang spesifik yang hanya boleh diakses oleh PT tertentu (*Dedicated Item*).
+1. **Kepemilikan Stok di Rak Bersama**: Satu rak fisik (misal `RAK-A1` atau `RAK-B1`) menyimpan barang milik PT A, PT B, dan PT Induk sekaligus. Sistem harus mencegah PT A mengeluarkan atau meretur stok milik PT B meskipun barangnya sama dan berada di rak yang sama.
+2. **Katalog Master Barang Terpusat (*Centralized SKU Catalog*)**: Master barang (`items`) didaftarkan satu kali sebagai kamus SKU grup (misal `MSP-OPL-178`) tanpa batasan "Global vs Khusus PT". Seluruh PT menggunakan kode SKU yang sama, sedangkan **kepemilikan aset & saldo stoknya tercatat terpisah per PT** (misal PT A punya 100 pcs, PT B punya 1.500 pcs, PT C punya 15 pcs), sehingga antar-PT dapat langsung melakukan transfer stok untuk barang yang sama.
 3. **Fleksibilitas Akses SDM**: Manajemen Holding atau staf gudang pusat perlu memantau dan mengoperasikan banyak PT sekaligus melalui **Company Switcher**, sementara staf operasional anak perusahaan hanya boleh melihat dan bertransaksi di PT tempat mereka ditugaskan.
 4. **Identitas Legal Dokumen Cetak**: Surat Bukti Barang Masuk, Surat Jalan Barang Keluar, dan Bukti Transfer harus mencetak Kop Surat (Nama Resmi PT, Alamat, Telepon, NPWP) sesuai PT pemilik transaksi.
 
@@ -61,8 +61,8 @@ flowchart TD
 ### Tiga Pilar Konsep Multi-PT
 | Pilar | Mekanisme Sistem | Implementasi Teknis |
 | :--- | :--- | :--- |
-| **1. Hybrid Item Catalog** | Barang dapat bersifat **Global** (dipakai bersama oleh semua PT, namun saldo stoknya tetap terpisah per PT) atau **Khusus PT** (hanya muncul di PT pemiliknya). | Kolom `items.company_id` bernilai `NULL` untuk Global, atau berisi `companies.id` untuk Khusus PT. |
-| **2. Shared Physical Locations** | Daftar rak/zona gudang (`locations`), kategori (`categories`), satuan (`units`), dan pemasok (`suppliers`) dikelola terpusat agar tidak terjadi duplikasi kode rak di gudang yang sama. | Master lokasi tidak dipecah per PT; pemisahan terjadi pada tabel `stock` dan seluruh tabel transaksi. |
+| **1. Centralized SKU Master** | Master barang didaftarkan 1x tanpa opsi "Global / Khusus PT". Setiap PT dapat memiliki stok & saling mentransfer stok untuk SKU yang sama. | Tabel `items` terpusat (`code` unik); kepemilikan dipisah murni pada tabel `stock.company_id` dan seluruh tabel transaksi. |
+| **2. Shared Physical Locations** | Daftar rak/zona gudang (`locations`), kategori (`categories`), satuan (`units`), dan pemasok (`suppliers`) dikelola terpusat agar tidak terjadi duplikasi kode rak di gudang yang sama. | Master lokasi tidak dipecah per PT; pemisahan saldo terjadi pada tabel `stock` (`item_id, location_id, company_id`). |
 | **3. Multi-Company User Scope** | Setiap user dipetakan ke 1 atau beberapa PT. User dengan akses >1 PT dapat mengganti konteks PT aktif lewat dropdown **Company Switcher** di navbar. | Tabel pivot `user_companies` + session `$_SESSION['active_company']` di `includes/auth.php`. |
 
 ---
@@ -72,7 +72,7 @@ flowchart TD
 Sistem menggabungkan **Role-Based Access Control (RBAC)** (apa fitur yang boleh dilakukan) dengan **Company Scope** (di PT mana user boleh melakukannya).
 
 ### 3.1. Daftar Role Standar
-1. **Super Admin**: Akses penuh ke seluruh fitur (`61 permissions`), termasuk manajemen Perusahaan (PT), Pengguna, Hak Akses Role, dan persetujuan dokumen.
+1. **Super Admin**: Akses penuh ke seluruh fitur (`60 permissions`), termasuk manajemen Perusahaan (PT), Pengguna, Hak Akses Role, dan persetujuan dokumen.
 2. **Admin Gudang**: Mengelola master barang/kategori/satuan/supplier/lokasi, membuat & menyetujui transaksi gudang, PO, Stock Opname, serta melihat seluruh laporan pada PT yang ditugaskan.
 3. **Staff Gudang**: Operasional harian (membuat Barang Masuk, Barang Keluar, Transfer, Retur Supplier, menghitung fisik Stock Opname) pada PT yang ditugaskan tanpa akses hapus/approve sensitif.
 4. **Viewer / Auditor / Manajemen**: Akses *read-only* ke Dashboard, Daftar Stok, Peringatan Stok, dan Laporan/Export CSV pada PT yang ditugaskan.
@@ -82,7 +82,7 @@ Sistem menggabungkan **Role-Based Access Control (RBAC)** (apa fitur yang boleh 
 ## 4. Spesifikasi Modul Fungsional
 
 1. **Autentikasi, Portal & Konteks Perusahaan**: Login dengan rate limiting, reset password via email, Company Switcher di navbar, serta Portal & Dashboard KPI khusus PT aktif.
-2. **Master Data**: Perusahaan (PT), Katalog Barang Hybrid (`Global` vs `Khusus PT`), Import CSV/XLSX, Cetak Barcode Code 39, Kategori, Satuan, Supplier, dan Lokasi Rak Bersama.
+2. **Master Data**: Perusahaan (PT), Katalog Master Barang Terpusat (disertai rincian kepemilikan stok per PT di halaman detail barang), Import CSV/XLSX, Cetak Barcode Code 39, Kategori, Satuan, Supplier, dan Lokasi Rak Bersama.
 3. **Pengadaan (PO) & Barang Masuk**: Pembuatan PO per PT, persetujuan (*Segregation of Duties*), penerimaan bertahap (*Partial Receive*) & penuh (*Full Receive*) dengan *row locking*, serta Barang Masuk langsung dengan kop surat cetak dinamis sesuai PT.
 4. **Barang Keluar, Transfer Rak & Retur Supplier**: Validasi stok tersedia per PT di lokasi asal, perpindahan stok antar-rak maupun transfer kepemilikan antar-PT, serta retur barang rusak ke supplier dengan fitur pembatalan atomik.
 5. **Pengendalian Persediaan (Stock Opname & Penyesuaian)**: Sesi Stock Opname terstruktur per PT (snapshot stok sistem, input fisik via scan barcode, laporan *variance*, finalisasi otomatis) dan Penyesuaian Stok manual dengan *Four-Eyes Approval*.

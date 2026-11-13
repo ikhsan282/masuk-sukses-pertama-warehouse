@@ -5,7 +5,10 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('stock_opname.view');
 $db = getDB();
 
-$status = req_str('status');
+$status     = req_str('status');
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
 $where_parts = ['o.company_id=?'];
 $params = [&$active_cid];
@@ -17,12 +20,23 @@ if (in_array($status, ['draft', 'finalized'], true)) {
 }
 $where = implode(' AND ', $where_parts);
 
+$cq = $db->prepare("SELECT COUNT(*) FROM stock_opname o WHERE $where");
+$cq->bind_param($types, ...$params);
+$cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+
+$pag = paginate($total, $page, $per_page);
+$offset = $pag['offset']; $limit = $pag['per_page'];
+$t2 = $types . 'ii';
+$p2 = $params; $p2[] = &$limit; $p2[] = &$offset;
+
 $st = $db->prepare("SELECT o.*, u.name user_name, fu.name finalized_name,
     (SELECT COUNT(*) FROM stock_opname_items WHERE session_id=o.session_id) item_count,
     (SELECT COUNT(*) FROM stock_opname_items WHERE session_id=o.session_id AND variance!=0) changed_count
-    FROM stock_opname o JOIN users u ON u.id=o.user_id LEFT JOIN users fu ON fu.id=o.finalized_by
-    WHERE $where ORDER BY o.session_id DESC");
-if ($types) $st->bind_param($types, ...$params);
+    FROM (SELECT o.session_id FROM stock_opname o WHERE $where ORDER BY o.session_id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_opname o ON o.session_id=pg.session_id
+    JOIN users u ON u.id=o.user_id LEFT JOIN users fu ON fu.id=o.finalized_by
+    ORDER BY o.session_id DESC");
+$st->bind_param($t2, ...$p2);
 $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
 $st->close();
@@ -45,6 +59,7 @@ include __DIR__ . '/../../includes/header.php';
         <option value="draft" <?= $status === 'draft' ? 'selected' : '' ?>>Draft</option>
         <option value="finalized" <?= $status === 'finalized' ? 'selected' : '' ?>>Finalized</option>
       </select>
+      <input type="hidden" name="per_page" value="<?= (int)$pag['per_page'] ?>">
       <button class="btn btn-sm btn-outline-secondary">Filter</button>
     </form>
   </div>
@@ -84,5 +99,6 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
+  <?= grid_footer_html($pag, 'sesi opname', ['status' => $status]) ?>
 </div>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>

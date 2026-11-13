@@ -152,10 +152,9 @@ CREATE TABLE `locations` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- Items (Hybrid Catalog: company_id NULL => Shared/Global; NOT NULL => Dedicated PT)
+-- Items (Centralized Group Master Catalog; ownership is segregated per PT in stock table)
 CREATE TABLE `items` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  `company_id` INT UNSIGNED NULL,
   `code` VARCHAR(30) NOT NULL UNIQUE,
   `name` VARCHAR(150) NOT NULL,
   `category_id` INT UNSIGNED NOT NULL,
@@ -167,7 +166,6 @@ CREATE TABLE `items` (
   `image` VARCHAR(255) DEFAULT NULL,
   `is_active` TINYINT(1) DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
   FOREIGN KEY (`category_id`) REFERENCES `categories`(`id`),
   FOREIGN KEY (`unit_id`) REFERENCES `units`(`id`)
 ) ENGINE=InnoDB;
@@ -435,20 +433,65 @@ ALTER TABLE `mutations`
   ADD INDEX `idx_mutations_item_id`    (`item_id`),
   ADD INDEX `idx_mutations_location_id`(`location_id`),
   ADD INDEX `idx_mutations_type`       (`type`),
-  ADD INDEX `idx_mutations_created_at` (`created_at`);
+  ADD INDEX `idx_mutations_created_at` (`created_at`),
+  ADD INDEX `idx_mutations_comp_created_id` (`company_id`, `created_at`, `id`),
+  ADD INDEX `idx_mutations_comp_id_created` (`company_id`, `id`, `created_at`),
+  ADD INDEX `idx_mutations_comp_item_created` (`company_id`, `item_id`, `created_at`, `id`),
+  ADD INDEX `idx_mutations_comp_type_created` (`company_id`, `type`, `created_at`, `id`);
 
 ALTER TABLE `stock_in`
   ADD INDEX `idx_stock_in_company_id` (`company_id`),
-  ADD INDEX `idx_stock_in_transaction_date` (`transaction_date`);
+  ADD INDEX `idx_stock_in_transaction_date` (`transaction_date`),
+  ADD INDEX `idx_stock_in_comp_date_id` (`company_id`, `transaction_date`, `id`),
+  ADD INDEX `idx_stock_in_comp_id_date` (`company_id`, `id`, `transaction_date`),
+  ADD INDEX `idx_stock_in_comp_id` (`company_id`, `id`);
 
 ALTER TABLE `stock_out`
   ADD INDEX `idx_stock_out_company_id` (`company_id`),
-  ADD INDEX `idx_stock_out_transaction_date` (`transaction_date`);
+  ADD INDEX `idx_stock_out_transaction_date` (`transaction_date`),
+  ADD INDEX `idx_stock_out_comp_date_id` (`company_id`, `transaction_date`, `id`),
+  ADD INDEX `idx_stock_out_comp_id_date` (`company_id`, `id`, `transaction_date`),
+  ADD INDEX `idx_stock_out_comp_id` (`company_id`, `id`);
 
 ALTER TABLE `items`
-  ADD INDEX `idx_items_company_id` (`company_id`),
   ADD INDEX `idx_items_code` (`code`),
-  ADD INDEX `idx_items_name` (`name`);
+  ADD INDEX `idx_items_name` (`name`),
+  ADD INDEX `idx_items_active_code` (`is_active`, `code`),
+  ADD INDEX `idx_items_active_cat_code` (`is_active`, `category_id`, `code`),
+  ADD INDEX `idx_items_active_name` (`is_active`, `name`);
+
+ALTER TABLE `stock`
+  ADD INDEX `idx_stock_comp_item_qty` (`company_id`, `item_id`, `quantity`),
+  ADD INDEX `idx_stock_comp_loc_item` (`company_id`, `location_id`, `item_id`),
+  ADD INDEX `idx_stock_loc_qty` (`location_id`, `quantity`);
+
+ALTER TABLE `transfers`
+  ADD INDEX `idx_transfers_from_comp_id` (`from_company_id`, `id`),
+  ADD INDEX `idx_transfers_to_comp_id` (`to_company_id`, `id`);
+
+ALTER TABLE `stock_adjustments`
+  ADD INDEX `idx_adjustments_comp_id` (`company_id`, `id`);
+
+ALTER TABLE `purchase_orders`
+  ADD INDEX `idx_po_comp_status_id` (`company_id`, `status`, `id`),
+  ADD INDEX `idx_po_comp_date_id` (`company_id`, `order_date`, `id`);
+
+ALTER TABLE `supplier_returns`
+  ADD INDEX `idx_sr_comp_date_id` (`company_id`, `transaction_date`, `id`),
+  ADD INDEX `idx_sr_comp_id` (`company_id`, `id`);
+
+ALTER TABLE `stock_opname`
+  ADD INDEX `idx_opname_comp_status_id` (`company_id`, `status`, `session_id`);
+
+ALTER TABLE `categories`
+  ADD INDEX `idx_categories_name` (`name`);
+
+ALTER TABLE `suppliers`
+  ADD INDEX `idx_suppliers_name` (`name`),
+  ADD INDEX `idx_suppliers_active_name` (`is_active`, `name`);
+
+ALTER TABLE `locations`
+  ADD INDEX `idx_locations_active_code` (`is_active`, `code`);
 
 
 -- ============================================================================
@@ -611,77 +654,80 @@ INSERT INTO `locations` (`id`, `code`, `name`, `description`, `is_active`) VALUE
 
 
 -- ============================================================================
--- 3. MASTER BARANG SCRAPED DARI MSPGRUP.CO.ID (HYBRID CATALOG)
+-- 3. MASTER BARANG TERPUSAT GRUP SCRAPED DARI MSPGRUP.CO.ID
 -- ============================================================================
 
-INSERT INTO `items` (`id`, `company_id`, `code`, `name`, `category_id`, `unit_id`, `min_stock`, `buy_price`, `sell_price`, `description`, `is_active`) VALUES
--- Shared / Global Items (company_id NULL - Ban Dalam, Flap, & Aksesoris Bersama)
-(1, NULL, 'SHR-TUB-01', 'WEN FENG Butyl Inner Tube 12.00R20 TR179A', 4, 1, 50, 210000.00, 290000.00, 'Ban dalam karet butil tebal kualitas tahan panas untuk ban truk 12.00R20 katup pentil TR179A', 1),
-(2, NULL, 'SHR-TUB-02', 'WANBO Butyl Inner Tube 23.5-25 TR179A', 4, 1, 20, 480000.00, 680000.00, 'Ban dalam alat berat loader tambang 23.5-25 pentil besar TR179A', 1),
-(3, NULL, 'SHR-FLP-01', 'Flap Selendang Ban Truk 12.00-20 Heavy Duty', 4, 1, 60, 115000.00, 165000.00, 'Flap pelindung velg ban truk radial tahan gesekan velg baja', 1),
-(4, NULL, 'SHR-VAL-01', 'Valve Pentil Ban OTR TRJ1175C Heavy Duty Brass', 5, 1, 100, 45000.00, 75000.00, 'Pentil kuningan ban alat berat tambang tahan tekanan tinggi', 1),
-(5, NULL, 'SHR-ORG-01', 'O-Ring Seal Ban Tubeless OTR 25 Inch', 5, 1, 40, 65000.00, 95000.00, 'Karet O-Ring seal penyekat velg tubeless dump truck tambang 25 inch', 1),
+INSERT INTO `items` (`id`, `code`, `name`, `category_id`, `unit_id`, `min_stock`, `buy_price`, `sell_price`, `description`, `is_active`) VALUES
+-- Ban Dalam, Flap, & Aksesoris
+(1, 'SHR-TUB-01', 'WEN FENG Butyl Inner Tube 12.00R20 TR179A', 4, 1, 50, 210000.00, 290000.00, 'Ban dalam karet butil tebal kualitas tahan panas untuk ban truk 12.00R20 katup pentil TR179A', 1),
+(2, 'SHR-TUB-02', 'WANBO Butyl Inner Tube 23.5-25 TR179A', 4, 1, 20, 480000.00, 680000.00, 'Ban dalam alat berat loader tambang 23.5-25 pentil besar TR179A', 1),
+(3, 'SHR-FLP-01', 'Flap Selendang Ban Truk 12.00-20 Heavy Duty', 4, 1, 60, 115000.00, 165000.00, 'Flap pelindung velg ban truk radial tahan gesekan velg baja', 1),
+(4, 'SHR-VAL-01', 'Valve Pentil Ban OTR TRJ1175C Heavy Duty Brass', 5, 1, 100, 45000.00, 75000.00, 'Pentil kuningan ban alat berat tambang tahan tekanan tinggi', 1),
+(5, 'SHR-ORG-01', 'O-Ring Seal Ban Tubeless OTR 25 Inch', 5, 1, 40, 65000.00, 95000.00, 'Karet O-Ring seal penyekat velg tubeless dump truck tambang 25 inch', 1),
 
--- PT Masuk Sukses Pertama Dedicated Items (company_id = 1 - Induk Holding / Impor Utama)
-(6,  1, 'MSP-OPL-232', 'OPALS OP232 315/80R22.5', 1, 1, 20, 3150000.00, 4100000.00, 'Ban radial truk tubeless premium tapak highway long-haul hemat bahan bakar dan traksi tinggi', 1),
-(7,  1, 'MSP-OPL-225', 'OPALS OP225 11.00R20', 1, 1, 25, 2750000.00, 3600000.00, 'Ban radial truk & bus all-position dengan 3-line tread design stabilitas tinggi jalur nasional', 1),
-(8,  1, 'MSP-OPL-359', 'OPALS EV OP359 12.00R20', 1, 1, 15, 3350000.00, 4350000.00, 'Ban radial truk tambang & logging heavy duty compound tahan sobek dan sayatan batu', 1),
-(9,  1, 'MSP-OPL-195', 'OPALS OTR OP195 23.5-25', 2, 1, 8, 14200000.00, 18500000.00, 'Ban alat berat wheel loader tapak tebal anti bocor self-cleaning groove optimal', 1),
-(10, 1, 'MSP-OPL-178', 'OPALS OTR OP178 14.00-24', 2, 1, 10, 7800000.00, 10200000.00, 'Ban alat berat motor grader traksi kuat dan ketahanan aus tinggi di medan berbatu', 1),
+-- Seri OPALS TBR & OTR
+(6,  'MSP-OPL-232', 'OPALS OP232 315/80R22.5', 1, 1, 20, 3150000.00, 4100000.00, 'Ban radial truk tubeless premium tapak highway long-haul hemat bahan bakar dan traksi tinggi', 1),
+(7,  'MSP-OPL-225', 'OPALS OP225 11.00R20', 1, 1, 25, 2750000.00, 3600000.00, 'Ban radial truk & bus all-position dengan 3-line tread design stabilitas tinggi jalur nasional', 1),
+(8,  'MSP-OPL-359', 'OPALS EV OP359 12.00R20', 1, 1, 15, 3350000.00, 4350000.00, 'Ban radial truk tambang & logging heavy duty compound tahan sobek dan sayatan batu', 1),
+(9,  'MSP-OPL-195', 'OPALS OTR OP195 23.5-25', 2, 1, 8, 14200000.00, 18500000.00, 'Ban alat berat wheel loader tapak tebal anti bocor self-cleaning groove optimal', 1),
+(10, 'MSP-OPL-178', 'OPALS OTR OP178 14.00-24', 2, 1, 10, 7800000.00, 10200000.00, 'Ban alat berat motor grader traksi kuat dan ketahanan aus tinggi di medan berbatu', 1),
 
--- PT Sukses Logistik Nusantara Dedicated Items (company_id = 2 - Tambang & Logistik Kalimantan)
-(11, 2, 'SLN-WNB-699', 'WANBO WB699 18.00-25', 2, 1, 6, 17500000.00, 22800000.00, 'Ban dump truck tambang batubara heavy duty lug pattern kokoh daya angkut ekstrem', 1),
-(12, 2, 'SLN-WNB-625', 'WANBO WB625 23.5-25', 2, 1, 6, 13800000.00, 17900000.00, 'Ban wheel loader tambang traksi maksimal dan ketahanan dinding samping superior', 1),
-(13, 2, 'SLN-WNB-711', 'WANBO WB711 29.5R25', 2, 1, 4, 34500000.00, 44000000.00, 'Ban giant mining radial haul truck tambang batubara ketahanan panas dan beban berat', 1),
-(14, 2, 'SLN-WNB-SLD', 'WANBO Solid Tire 28x9-15', 3, 1, 12, 2850000.00, 3900000.00, 'Ban mati/solid anti pecah forklift 3.5 - 5 ton untuk handling logistik pelabuhan dan gudang', 1),
+-- Seri WANBO Mining OTR & Solid Forklift
+(11, 'SLN-WNB-699', 'WANBO WB699 18.00-25', 2, 1, 6, 17500000.00, 22800000.00, 'Ban dump truck tambang batubara heavy duty lug pattern kokoh daya angkut ekstrem', 1),
+(12, 'SLN-WNB-625', 'WANBO WB625 23.5-25', 2, 1, 6, 13800000.00, 17900000.00, 'Ban wheel loader tambang traksi maksimal dan ketahanan dinding samping superior', 1),
+(13, 'SLN-WNB-711', 'WANBO WB711 29.5R25', 2, 1, 4, 34500000.00, 44000000.00, 'Ban giant mining radial haul truck tambang batubara ketahanan panas dan beban berat', 1),
+(14, 'SLN-WNB-SLD', 'WANBO Solid Tire 28x9-15', 3, 1, 12, 2850000.00, 3900000.00, 'Ban mati/solid anti pecah forklift 3.5 - 5 ton untuk handling logistik pelabuhan dan gudang', 1),
 
--- PT Prima Distribusi Mandiri Dedicated Items (company_id = 3 - Distribusi Retail Jawa Timur)
-(15, 3, 'PDM-OPL-366', 'OPALS OP366 10.00R20', 1, 1, 20, 2450000.00, 3200000.00, 'Ban truk ekspedisi kargo antar kota tapak awet kilometer tinggi', 1),
-(16, 3, 'PDM-OPL-265', 'OPALS OP265 7.50R16', 1, 1, 30, 1450000.00, 1950000.00, 'Ban truk engkel & canter armada distribusi retail dan logistik perkotaan', 1),
-(17, 3, 'PDM-WNB-650', 'WANBO Solid Tire 6.50-10', 3, 1, 15, 1650000.00, 2350000.00, 'Ban mati/solid forklift pabrik 2 - 2.5 ton awet dan bebas perawatan bocor', 1);
+-- Seri Ban Distribusi Kargo & Light Truck
+(15, 'PDM-OPL-366', 'OPALS OP366 10.00R20', 1, 1, 20, 2450000.00, 3200000.00, 'Ban truk ekspedisi kargo antar kota tapak awet kilometer tinggi', 1),
+(16, 'PDM-OPL-265', 'OPALS OP265 7.50R16', 1, 1, 30, 1450000.00, 1950000.00, 'Ban truk engkel & canter armada distribusi retail dan logistik perkotaan', 1),
+(17, 'PDM-WNB-650', 'WANBO Solid Tire 6.50-10', 3, 1, 15, 1650000.00, 2350000.00, 'Ban mati/solid forklift pabrik 2 - 2.5 ton awet dan bebas perawatan bocor', 1);
 
 
 -- ============================================================================
--- 4. SALDO STOK OPERASIONAL REALISTIS (MULTI-PT DI RAK BERSAMA)
+-- 4. SALDO STOK OPERASIONAL REALISTIS (KEPEMILIKAN PER PT DI RAK BERSAMA)
 -- ============================================================================
 
 INSERT INTO `stock` (`item_id`, `location_id`, `company_id`, `quantity`) VALUES
--- RAK-TBR-01 (Zona Ban Truk Konvensional 11.00R20 / 12.00R20)
-(7, 1, 1, 85),   -- MSP OPALS OP225 11.00R20 (85 pcs)
-(8, 1, 1, 12),   -- MSP OPALS OP359 12.00R20 (12 pcs <= min 15 -> MENIPIS / ALERT!)
-(15, 1, 3, 60),  -- PDM OPALS OP366 10.00R20 (60 pcs)
+-- RAK-A1 (Zona Ban Truk Konvensional 10.00R20 / 11.00R20 / 12.00R20)
+(7,  1, 1, 85),   -- MSP: OPALS OP225 11.00R20 (85 pcs)
+(7,  1, 2, 40),   -- SLN: OPALS OP225 11.00R20 (40 pcs)
+(8,  1, 1, 12),   -- MSP: OPALS EV OP359 12.00R20 (12 pcs <= min 15 -> MENIPIS / ALERT!)
+(15, 1, 3, 60),   -- PDM: OPALS OP366 10.00R20 (60 pcs)
 
--- RAK-TBR-02 (Zona Ban Tubeless 315/80R22.5 & Light Truck)
-(6, 2, 1, 95),   -- MSP OPALS OP232 315/80R22.5 (95 pcs)
-(16, 2, 3, 75),  -- PDM OPALS OP265 7.50R16 (75 pcs)
+-- RAK-A2 (Zona Ban Truk Tubeless 315/80R22.5 & Light Truck)
+(6,  2, 1, 95),   -- MSP: OPALS OP232 315/80R22.5 (95 pcs)
+(16, 2, 3, 75),   -- PDM: OPALS OP265 7.50R16 (75 pcs)
 
--- RAK-OTR-01 (Zona Ban Tambang & Grader)
-(9, 3, 1, 18),   -- MSP OPALS OTR OP195 23.5-25 (18 pcs)
-(10, 3, 1, 24),  -- MSP OPALS OTR OP178 14.00-24 (24 pcs)
-(11, 3, 2, 14),  -- SLN WANBO WB699 18.00-25 (14 pcs)
-(12, 3, 2, 16),  -- SLN WANBO WB625 23.5-25 (16 pcs)
-(13, 3, 2, 2),   -- SLN WANBO WB711 29.5R25 (2 pcs <= min 4 -> MENIPIS / ALERT!)
+-- RAK-B1 (Zona Ban Tambang & Grader)
+(9,  3, 1, 18),   -- MSP: OPALS OTR OP195 23.5-25 (18 pcs)
+(10, 3, 1, 100),  -- MSP: OPALS OTR OP178 14.00-24 (100 pcs milik PT MSP)
+(10, 3, 2, 1500), -- SLN: OPALS OTR OP178 14.00-24 (1500 pcs milik PT SLN)
+(10, 3, 3, 15),   -- PDM: OPALS OTR OP178 14.00-24 (15 pcs milik PT PDM)
+(11, 3, 2, 14),   -- SLN: WANBO WB699 18.00-25 (14 pcs)
+(12, 3, 2, 16),   -- SLN: WANBO WB625 23.5-25 (16 pcs)
+(13, 3, 2, 2),    -- SLN: WANBO WB711 29.5R25 (2 pcs <= min 4 -> MENIPIS / ALERT!)
 
--- RAK-SLD-01 (Zona Ban Solid Forklift)
-(14, 4, 2, 32),  -- SLN WANBO Solid Tire 28x9-15 (32 pcs)
-(17, 4, 3, 40),  -- PDM WANBO Solid Tire 6.50-10 (40 pcs)
+-- RAK-B2 (Zona Ban Solid Forklift)
+(14, 4, 2, 32),   -- SLN: WANBO Solid Tire 28x9-15 (32 pcs)
+(17, 4, 3, 40),   -- PDM: WANBO Solid Tire 6.50-10 (40 pcs)
 
--- RAK-TUB-01 (Zona Ban Dalam & Aksesoris - Shared Items milik multi-PT)
-(1, 5, 1, 180),  -- MSP Butyl Tube 12.00R20 (180 pcs)
-(1, 5, 2, 95),   -- SLN Butyl Tube 12.00R20 (95 pcs)
-(1, 5, 3, 60),   -- PDM Butyl Tube 12.00R20 (60 pcs)
-(2, 5, 1, 45),   -- MSP Butyl Tube 23.5-25 (45 pcs)
-(2, 5, 2, 30),   -- SLN Butyl Tube 23.5-25 (30 pcs)
-(3, 5, 1, 220),  -- MSP Flap 12.00-20 (220 pcs)
-(3, 5, 2, 110),  -- SLN Flap 12.00-20 (110 pcs)
-(4, 5, 1, 250),  -- MSP Valve Pentil TRJ1175C (250 pcs)
-(5, 5, 1, 85),   -- MSP O-Ring Seal 25 Inch (85 pcs)
-(5, 5, 2, 40),   -- SLN O-Ring Seal 25 Inch (40 pcs)
+-- RAK-C1 (Zona Ban Dalam & Aksesoris - Stok terpisah per PT)
+(1, 5, 1, 180),   -- MSP: Butyl Tube 12.00R20 (180 pcs)
+(1, 5, 2, 95),    -- SLN: Butyl Tube 12.00R20 (95 pcs)
+(1, 5, 3, 60),    -- PDM: Butyl Tube 12.00R20 (60 pcs)
+(2, 5, 1, 45),    -- MSP: Butyl Tube 23.5-25 (45 pcs)
+(2, 5, 2, 30),    -- SLN: Butyl Tube 23.5-25 (30 pcs)
+(3, 5, 1, 220),   -- MSP: Flap 12.00-20 (220 pcs)
+(3, 5, 2, 110),   -- SLN: Flap 12.00-20 (110 pcs)
+(4, 5, 1, 250),   -- MSP: Valve Pentil TRJ1175C (250 pcs)
+(5, 5, 1, 85),    -- MSP: O-Ring Seal 25 Inch (85 pcs)
+(5, 5, 2, 40),    -- SLN: O-Ring Seal 25 Inch (40 pcs)
 
 -- GUDANG-BJM (Gudang Bizpark Banjarmasin - Siap Kirim Site Tambang)
-(11, 6, 2, 20),  -- SLN WANBO WB699 18.00-25 (20 pcs di Banjarmasin)
-(12, 6, 2, 15),  -- SLN WANBO WB625 23.5-25 (15 pcs di Banjarmasin)
-(1, 6, 2, 50);   -- SLN Butyl Tube di Banjarmasin (50 pcs)
+(11, 6, 2, 20),   -- SLN: WANBO WB699 18.00-25 (20 pcs di Banjarmasin)
+(12, 6, 2, 15),   -- SLN: WANBO WB625 23.5-25 (15 pcs di Banjarmasin)
+(1,  6, 2, 50);   -- SLN: Butyl Tube di Banjarmasin (50 pcs)
 
 
 -- ============================================================================

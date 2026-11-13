@@ -24,8 +24,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sell_price= (float)req_str('sell_price');
     $desc      = req_str('description');
     $active    = req_int('is_active');
-    $comp_id   = req_int('company_id');
-    $comp_id_val = $comp_id > 0 ? $comp_id : null;
     $remove_img= req_int('remove_image');
     $image     = $item['image'] ?? null;
 
@@ -47,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         $st = $db->prepare('UPDATE items SET code=?,name=?,category_id=?,unit_id=?,min_stock=?,
-            buy_price=?,sell_price=?,description=?,image=?,is_active=?,company_id=? WHERE id=?');
-        $st->bind_param('ssiiiddssiii', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image,$active,$comp_id_val,$id);
+            buy_price=?,sell_price=?,description=?,image=?,is_active=? WHERE id=?');
+        $st->bind_param('ssiiiddssii', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image,$active,$id);
         if ($st->execute()) {
             set_flash('success', 'Barang berhasil diperbarui.');
             redirect(APP_URL . '/pages/items/index.php');
@@ -59,12 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     // repopulate
     $item = array_merge($item, ['code'=>$code,'name'=>$name,'category_id'=>$cat_id,'unit_id'=>$unit_id,
-        'min_stock'=>$min_stock,'buy_price'=>$buy_price,'sell_price'=>$sell_price,'description'=>$desc,'image'=>$image,'is_active'=>$active,'company_id'=>$comp_id_val]);
+        'min_stock'=>$min_stock,'buy_price'=>$buy_price,'sell_price'=>$sell_price,'description'=>$desc,'image'=>$image,'is_active'=>$active]);
 }
 
 $categories = $db->query('SELECT id,name FROM categories ORDER BY name')->fetch_all(MYSQLI_ASSOC);
 $units      = $db->query('SELECT id,name,abbreviation FROM units ORDER BY name')->fetch_all(MYSQLI_ASSOC);
-$all_companies = $db->query('SELECT id,code,name,is_holding FROM companies WHERE is_active=1 ORDER BY is_holding DESC, name ASC')->fetch_all(MYSQLI_ASSOC);
 $page_title = 'Edit Barang';
 include __DIR__ . '/../../includes/header.php';
 ?>
@@ -96,18 +93,6 @@ include __DIR__ . '/../../includes/header.php';
         <div class="col-md-8">
           <label class="form-label small fw-semibold required">Nama Barang</label>
           <input type="text" name="name" class="form-control" value="<?= htmlspecialchars($item['name']) ?>" required>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label small fw-semibold">Cakupan Kepemilikan (PT)</label>
-          <select name="company_id" class="form-select">
-            <option value="" <?= empty($item['company_id']) ? 'selected' : '' ?>>🌐 Global (Bisa dipakai seluruh PT / Holding)</option>
-            <?php foreach ($all_companies as $c): ?>
-            <option value="<?= $c['id'] ?>" <?= (int)($item['company_id'] ?? 0) === (int)$c['id'] ? 'selected' : '' ?>>
-              🏢 Khusus [<?= htmlspecialchars($c['code']) ?>] <?= htmlspecialchars($c['name']) ?>
-            </option>
-            <?php endforeach; ?>
-          </select>
-          <div class="form-text">Pilih 'Global' jika barang dipakai bersama oleh grup, atau pilih PT spesifik jika barang milik eksklusif anak PT.</div>
         </div>
         <div class="col-md-6">
           <label class="form-label small fw-semibold required">Kategori</label>

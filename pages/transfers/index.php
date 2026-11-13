@@ -6,28 +6,37 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('transfers.view');
 $db = getDB();
 
-$page = max(1,req_int('page',1));
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
 
-$cq=$db->prepare('SELECT COUNT(*) FROM transfers WHERE from_company_id=? OR to_company_id=?');
-$cq->bind_param('ii', $active_cid, $active_cid);
+$cq=$db->prepare('SELECT (SELECT COUNT(*) FROM transfers WHERE from_company_id=?) + (SELECT COUNT(*) FROM transfers WHERE to_company_id=? AND from_company_id<>?)');
+$cq->bind_param('iii', $active_cid, $active_cid, $active_cid);
 $cq->execute();
-$total=$cq->get_result()->fetch_row()[0];
+$total=(int)$cq->get_result()->fetch_row()[0];
 $cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
+$inner_limit = $limit + $offset;
 $st=$db->prepare('SELECT t.*, fl.name AS from_loc, tl.name AS to_loc, u.name AS user_name,
     fc.code AS from_comp_code, tc.code AS to_comp_code,
     (SELECT COUNT(*) FROM transfer_details d WHERE d.transfer_id=t.id) AS item_count
-    FROM transfers t 
+    FROM (
+        SELECT id FROM (
+            (SELECT id FROM transfers WHERE from_company_id=? ORDER BY id DESC LIMIT ?)
+            UNION
+            (SELECT id FROM transfers WHERE to_company_id=? ORDER BY id DESC LIMIT ?)
+        ) combined ORDER BY id DESC LIMIT ? OFFSET ?
+    ) pg
+    JOIN transfers t ON t.id=pg.id
     JOIN locations fl ON fl.id=t.from_location_id
-    JOIN locations tl ON tl.id=t.to_location_id 
+    JOIN locations tl ON tl.id=t.to_location_id
     JOIN users u ON u.id=t.user_id
     LEFT JOIN companies fc ON fc.id=t.from_company_id
     LEFT JOIN companies tc ON tc.id=t.to_company_id
-    WHERE t.from_company_id=? OR t.to_company_id=?
-    ORDER BY t.id DESC LIMIT ? OFFSET ?');
-$st->bind_param('iiii', $active_cid, $active_cid, $limit, $offset); $st->execute();
+    ORDER BY t.id DESC');
+$st->bind_param('iiiiii', $active_cid, $inner_limit, $active_cid, $inner_limit, $limit, $offset); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
@@ -79,9 +88,6 @@ $page_title='Transfer Lokasi'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> transfer</small>
-    <?=pagination_html($pag,'?page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'transfer') ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php';?>

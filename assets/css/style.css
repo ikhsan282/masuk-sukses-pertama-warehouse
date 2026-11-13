@@ -113,6 +113,21 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 
 .sidebar-footer .sidebar-link { font-size: .8rem; }
 
+/* Ultra-thin sidebar scrollbar */
+#sidebar .sidebar-menu::-webkit-scrollbar { width: 3px; }
+#sidebar .sidebar-menu::-webkit-scrollbar-track { background: transparent; }
+#sidebar .sidebar-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 999px;
+}
+#sidebar .sidebar-menu:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .38); }
+@supports not selector(::-webkit-scrollbar) {
+  #sidebar .sidebar-menu {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .25) transparent;
+  }
+}
+
 /* ── Cards ──────────────────────────────────────────────── */
 .stat-card {
   border: none;
@@ -130,6 +145,10 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 
 /* ── Tables ─────────────────────────────────────────────── */
 .table-card { border-radius: .75rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+.grid-footer { border-top: 1px solid var(--border-color); }
+.grid-footer .form-select-sm,
+.grid-footer .form-control-sm { min-height: 28px; font-size: .78rem; }
+.grid-footer .page-link { padding: .2rem .5rem; font-size: .78rem; }
 .table thead th { font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: #f8f9fa; }
 .table tbody tr:hover { background: var(--accent-soft); }
 .table td, .table th { vertical-align: middle; }

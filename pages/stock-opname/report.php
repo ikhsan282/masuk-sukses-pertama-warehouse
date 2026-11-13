@@ -25,15 +25,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect(APP_URL . '/pages/stock-opname/report.php?id=' . $id);
 }
 
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+
+$agg = $db->prepare('SELECT COUNT(*), COALESCE(SUM(variance != 0),0), COALESCE(SUM(variance),0) FROM stock_opname_items WHERE session_id=?');
+$agg->bind_param('i', $id);
+$agg->execute();
+$agg->bind_result($total, $changed, $net);
+$agg->fetch();
+$agg->close();
+$total   = (int)$total;
+$changed = (int)$changed;
+$net     = (int)$net;
+
+$pag    = paginate($total, $page, $per_page);
+$offset = $pag['offset'];
+$limit  = $pag['per_page'];
+
 $stmt = $db->prepare('SELECT oi.*,i.code,i.name,u.abbreviation,l.code location_code,l.name location_name
     FROM stock_opname_items oi JOIN items i ON i.id=oi.item_id JOIN units u ON u.id=i.unit_id
-    JOIN locations l ON l.id=oi.location_id WHERE oi.session_id=? ORDER BY l.code,i.name');
-$stmt->bind_param('i', $id);
+    JOIN locations l ON l.id=oi.location_id WHERE oi.session_id=? ORDER BY l.code,i.name LIMIT ? OFFSET ?');
+$stmt->bind_param('iii', $id, $limit, $offset);
 $stmt->execute();
 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-$changed = count(array_filter($rows, fn($r) => (int)$r['variance'] !== 0));
-$net = array_sum(array_map(fn($r) => (int)$r['variance'], $rows));
 
 $adjustments = [];
 if ($opname['status'] === 'finalized') {
@@ -55,9 +71,9 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="row g-3 mb-3">
-  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Item Dihitung</div><div class="fs-3 fw-bold"><?= count($rows) ?></div></div></div></div>
-  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Item Berselisih</div><div class="fs-3 fw-bold text-warning"><?= $changed ?></div></div></div></div>
-  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Selisih Bersih</div><div class="fs-3 fw-bold <?= $net < 0 ? 'text-danger' : ($net > 0 ? 'text-success' : '') ?>"><?= $net > 0 ? '+' : '' ?><?= $net ?></div></div></div></div>
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Item Dihitung</div><div class="fs-3 fw-bold"><?= number_format($total, 0, ',', '.') ?></div></div></div></div>
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Item Berselisih</div><div class="fs-3 fw-bold text-warning"><?= number_format($changed, 0, ',', '.') ?></div></div></div></div>
+  <div class="col-md-4"><div class="card shadow-sm"><div class="card-body"><div class="small text-muted">Selisih Bersih</div><div class="fs-3 fw-bold <?= $net < 0 ? 'text-danger' : ($net > 0 ? 'text-success' : '') ?>"><?= $net > 0 ? '+' : '' ?><?= number_format($net, 0, ',', '.') ?></div></div></div></div>
 </div>
 
 <div class="card table-card mb-3">
@@ -70,12 +86,13 @@ include __DIR__ . '/../../includes/header.php';
     <?php endforeach; ?>
     </tbody>
   </table></div>
+  <?= grid_footer_html($pag, 'item opname', ['id' => $id]) ?>
 </div>
 
 <div class="d-flex gap-2 align-items-center">
   <?php if ($opname['status'] === 'draft'): ?>
     <?php if (can('stock_opname.count')): ?><a href="<?= APP_URL ?>/pages/stock-opname/count.php?id=<?= $id ?>" class="btn btn-outline-primary"><i class="bi bi-pencil me-1"></i>Lanjut Hitung</a><?php endif; ?>
-    <?php if (can('stock_opname.finalize') && $rows): ?>
+    <?php if (can('stock_opname.finalize') && $total > 0): ?>
     <form method="POST" class="d-inline"><input type="hidden" name="action" value="finalize"><?= csrf_field() ?><button class="btn btn-success" data-confirm="Finalisasi sesi? Stok sistem akan disesuaikan dan tindakan ini tidak dapat dibatalkan."><i class="bi bi-check-circle me-1"></i>Finalisasi & Posting</button></form>
     <?php endif; ?>
   <?php else: ?>

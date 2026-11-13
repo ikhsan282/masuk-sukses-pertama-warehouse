@@ -59,18 +59,20 @@ if (req_int('edit')) {
 }
 
 // List
-$search = req_str('q');
-$page   = max(1, req_int('page', 1));
-$where  = $search ? "WHERE name LIKE ? OR code LIKE ?" : '';
-$count_q = $db->prepare("SELECT COUNT(*) FROM categories $where");
-if ($search) { $like = "%$search%"; $count_q->bind_param('ss', $like, $like); }
+$search   = grid_search_term('q');
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$where    = $search ? "WHERE name LIKE ? OR code LIKE ?" : '';
+$count_q  = $db->prepare("SELECT COUNT(*) FROM categories $where");
+if ($search) { $like = '%' . escape_like($search) . '%'; $count_q->bind_param('ss', $like, $like); }
 $count_q->execute(); $count_q->bind_result($total); $count_q->fetch(); $count_q->close();
 
-$pag    = paginate($total, $page);
+$pag    = paginate($total, $page, $per_page);
 $offset = $pag['offset'];
-$limit  = PER_PAGE;
+$limit  = $pag['per_page'];
 $st = $db->prepare("SELECT * FROM categories $where ORDER BY name LIMIT ? OFFSET ?");
-if ($search) { $like = "%$search%"; $st->bind_param('ssii', $like, $like, $limit, $offset); }
+if ($search) { $st->bind_param('ssii', $like, $like, $limit, $offset); }
 else { $st->bind_param('ii', $limit, $offset); }
 $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -128,10 +130,7 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?= count($rows) ?> dari <?= $total ?> kategori</small>
-    <?= pagination_html($pag, '?<?= $search ? "q={$search}&" : "" ?>page=%d') ?>
-  </div>
+  <?= grid_footer_html($pag, 'kategori', ['q' => $search]) ?>
 </div>
 
 <!-- Add/Edit Modal -->

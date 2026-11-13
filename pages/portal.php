@@ -9,8 +9,8 @@ if (!in_array($user['role_name'], ['Staff Gudang','Viewer'], true)) redirect(APP
 $db = getDB(); $uid = (int)$user['id'];
 $cid = current_company_id();
 $comp = current_company();
-$total_items = (int)$db->query("SELECT COUNT(*) FROM items WHERE is_active=1 AND (company_id IS NULL OR company_id=$cid)")->fetch_row()[0];
-$stock = $db->query("SELECT i.code,i.name,u.abbreviation,COALESCE(SUM(s.quantity),0) qty FROM items i JOIN units u ON u.id=i.unit_id LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid WHERE i.is_active=1 AND (i.company_id IS NULL OR i.company_id=$cid) GROUP BY i.id ORDER BY i.name LIMIT 100")->fetch_all(MYSQLI_ASSOC);
+$total_items = (int)$db->query("SELECT COUNT(*) FROM items WHERE is_active=1")->fetch_row()[0];
+$stock = $db->query("SELECT i.code,i.name,u.abbreviation,COALESCE(SUM(s.quantity),0) qty FROM items i JOIN units u ON u.id=i.unit_id LEFT JOIN stock s ON s.item_id=i.id AND s.company_id=$cid WHERE i.is_active=1 GROUP BY i.id ORDER BY i.name LIMIT 100")->fetch_all(MYSQLI_ASSOC);
 $tx = [];
 foreach ([['Barang Masuk','stock_in'],['Barang Keluar','stock_out'],['Transfer','transfers']] as [$label,$table]) {
  $st=$db->prepare("SELECT reference_no,transaction_date,created_at FROM `$table` WHERE user_id=? ORDER BY created_at DESC LIMIT 20"); $st->bind_param('i',$uid); $st->execute();

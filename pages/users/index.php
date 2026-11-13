@@ -128,25 +128,27 @@ if (req_int('edit')) {
     }
 }
 
-$search = req_str('q');
-$page   = max(1, req_int('page',1));
-$where  = $search ? "WHERE u.name LIKE ? OR u.username LIKE ? OR u.email LIKE ?" : '';
+$search   = grid_search_term('q');
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$where    = $search ? "WHERE u.name LIKE ? OR u.username LIKE ? OR u.email LIKE ?" : '';
 $cq=$db->prepare("SELECT COUNT(*) FROM users u $where");
-if($search){$like="%$search%";$cq->bind_param('sss',$like,$like,$like);}
+if($search){$like='%'.escape_like($search).'%';$cq->bind_param('sss',$like,$like,$like);}
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page);$offset=$pag['offset'];$limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page);$offset=$pag['offset'];$limit=$pag['per_page'];
 $st=$db->prepare("SELECT u.id,u.name,u.username,u.email,u.is_active,u.email_verified_at,u.created_at,
     r.name AS role_name,
     GROUP_CONCAT(c.code ORDER BY c.is_holding DESC, c.code ASC SEPARATOR ', ') AS company_codes
-    FROM users u 
-    JOIN roles r ON r.id=u.role_id 
+    FROM (SELECT u.id FROM users u $where ORDER BY u.id DESC LIMIT ? OFFSET ?) pg
+    JOIN users u ON u.id = pg.id
+    JOIN roles r ON r.id=u.role_id
     LEFT JOIN user_companies uc ON uc.user_id=u.id
     LEFT JOIN companies c ON c.id=uc.company_id
-    $where 
     GROUP BY u.id
-    ORDER BY u.id DESC LIMIT ? OFFSET ?");
-if($search){$like="%$search%";$st->bind_param('sssii',$like,$like,$like,$limit,$offset);}
+    ORDER BY u.id DESC");
+if($search){$st->bind_param('sssii',$like,$like,$like,$limit,$offset);}
 else{$st->bind_param('ii',$limit,$offset);}
 $st->execute(); $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -212,10 +214,7 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> pengguna</small>
-    <?=pagination_html($pag,'?'.($search?"q={$search}&":'').'page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'pengguna', ['q' => $search]) ?>
 </div>
 
 <!-- Create Modal -->

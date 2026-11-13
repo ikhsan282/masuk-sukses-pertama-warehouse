@@ -6,14 +6,16 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('supplier_returns.view');
 $db = getDB();
 
-$search    = req_str('q');
-$date_from = req_str('date_from');
-$date_to   = req_str('date_to');
-$page      = max(1, req_int('page', 1));
+$search     = grid_search_term('q');
+$date_from  = req_date('date_from');
+$date_to    = req_date('date_to');
+$page       = max(1, req_int('page', 1));
+$per_page   = grid_per_page();
+grid_apply_timeout($db);
 $active_cid = current_company_id();
 
 $where_parts = ['sr.company_id = ?']; $params=[&$active_cid]; $types='i';
-if ($search)    { $where_parts[]='sr.reference_no LIKE ?'; $like="%$search%"; $params[]=&$like; $types.='s'; }
+if ($search)    { $where_parts[]='sr.reference_no LIKE ?'; $like='%'.escape_like($search).'%'; $params[]=&$like; $types.='s'; }
 if ($date_from) { $where_parts[]='sr.transaction_date >= ?'; $params[]=&$date_from; $types.='s'; }
 if ($date_to)   { $where_parts[]='sr.transaction_date <= ?'; $params[]=&$date_to; $types.='s'; }
 $where='WHERE '.implode(' AND ',$where_parts);
@@ -22,14 +24,16 @@ $cq=$db->prepare("SELECT COUNT(*) FROM supplier_returns sr $where");
 if($types)$cq->bind_param($types,...$params);
 $cq->execute();$cq->bind_result($total);$cq->fetch();$cq->close();
 
-$pag=paginate($total,$page); $offset=$pag['offset']; $limit=PER_PAGE;
+$pag=paginate($total,$page,$per_page); $offset=$pag['offset']; $limit=$pag['per_page'];
 $t2=$types.'ii'; $p2=$params; $p2[]=&$limit; $p2[]=&$offset;
 $st=$db->prepare("SELECT sr.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name,
     (SELECT COUNT(*) FROM supplier_return_details d WHERE d.return_id=sr.id) AS item_count,
     (SELECT SUM(d.quantity) FROM supplier_return_details d WHERE d.return_id=sr.id) AS total_qty
-    FROM supplier_returns sr JOIN suppliers s ON s.id=sr.supplier_id
+    FROM (SELECT sr.id FROM supplier_returns sr $where ORDER BY sr.id DESC LIMIT ? OFFSET ?) pg
+    JOIN supplier_returns sr ON sr.id=pg.id
+    JOIN suppliers s ON s.id=sr.supplier_id
     JOIN locations l ON l.id=sr.location_id JOIN users u ON u.id=sr.user_id
-    $where ORDER BY sr.id DESC LIMIT ? OFFSET ?");
+    ORDER BY sr.id DESC");
 $st->bind_param($t2,...$p2); $st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
@@ -78,9 +82,6 @@ $page_title='Retur Supplier'; include __DIR__.'/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?=count($rows)?> dari <?=$total?> retur</small>
-    <?=pagination_html($pag,'?'.http_build_query(['q'=>$search,'date_from'=>$date_from,'date_to'=>$date_to]).'&page=%d')?>
-  </div>
+  <?= grid_footer_html($pag, 'retur', ['q' => $search, 'date_from' => $date_from, 'date_to' => $date_to]) ?>
 </div>
 <?php include __DIR__.'/../../includes/footer.php';?>

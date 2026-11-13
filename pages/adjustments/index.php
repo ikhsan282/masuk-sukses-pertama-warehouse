@@ -6,26 +6,28 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_perm('adjustments.view');
 $db = getDB();
 
-$page = max(1, req_int('page', 1));
-$comp_id = current_company_id();
+$page     = max(1, req_int('page', 1));
+$per_page = grid_per_page();
+grid_apply_timeout($db);
+$comp_id  = current_company_id();
 $cq = $db->prepare('SELECT COUNT(*) FROM stock_adjustments WHERE company_id=?');
 $cq->bind_param('i', $comp_id);
 $cq->execute();
-$total = $cq->get_result()->fetch_row()[0];
+$total = (int)$cq->get_result()->fetch_row()[0];
 $cq->close();
-$pag = paginate($total, $page);
+$pag = paginate($total, $page, $per_page);
 $offset = $pag['offset'];
-$limit = PER_PAGE;
+$limit = $pag['per_page'];
 
 $st = $db->prepare('SELECT a.*, l.name AS loc_name, u.name AS user_name,
     au.name AS approver_name,
     (SELECT COUNT(*) FROM stock_adjustment_details d WHERE d.adjustment_id=a.id) AS item_count
-    FROM stock_adjustments a
+    FROM (SELECT id FROM stock_adjustments WHERE company_id=? ORDER BY id DESC LIMIT ? OFFSET ?) pg
+    JOIN stock_adjustments a ON a.id=pg.id
     JOIN locations l ON l.id=a.location_id
     JOIN users u ON u.id=a.user_id
     LEFT JOIN users au ON au.id=a.approved_by
-    WHERE a.company_id=?
-    ORDER BY a.id DESC LIMIT ? OFFSET ?');
+    ORDER BY a.id DESC');
 $st->bind_param('iii', $comp_id, $limit, $offset);
 $st->execute();
 $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -82,9 +84,6 @@ include __DIR__ . '/../../includes/header.php';
       </tbody>
     </table>
   </div>
-  <div class="card-footer bg-white d-flex align-items-center justify-content-between py-2">
-    <small class="text-muted">Menampilkan <?= count($rows) ?> dari <?= $total ?> penyesuaian</small>
-    <?= pagination_html($pag, '?page=%d') ?>
-  </div>
+  <?= grid_footer_html($pag, 'penyesuaian') ?>
 </div>
 <?php include __DIR__ . '/../../includes/footer.php'; ?>
