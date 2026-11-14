@@ -326,6 +326,27 @@ function grid_filter_actions_html(int $per_page, bool $show_reset = false, strin
     return $html;
 }
 
+// Standardized Export dropdown (PDF & Excel) for Data Master headers
+function master_export_dropdown_html(array $query_params = [], string $endpoint = 'export.php'): string {
+    $clean = [];
+    foreach ($query_params as $k => $v) {
+        if ($v !== '' && $v !== null && $v !== 0 && $v !== '0') {
+            $clean[$k] = $v;
+        }
+    }
+    $pdf_url   = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'pdf']), ENT_QUOTES, 'UTF-8');
+    $excel_url = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'excel']), ENT_QUOTES, 'UTF-8');
+    return '<div class="btn-group">'
+         . '<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" aria-expanded="false">'
+         . '<i class="bi bi-download me-1"></i>Export'
+         . '</button>'
+         . '<ul class="dropdown-menu dropdown-menu-end shadow-sm">'
+         . '<li><a class="dropdown-item" href="' . $pdf_url . '" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf text-danger me-2"></i>Export PDF</a></li>'
+         . '<li><a class="dropdown-item" href="' . $excel_url . '"><i class="bi bi-file-earmark-excel text-success me-2"></i>Export Excel</a></li>'
+         . '</ul>'
+         . '</div>';
+}
+
 // Guard CSV export cells against Excel/Calc formula injection (CWE-1236)
 function csv_safe_cell($value): string {
     $str = (string)$value;

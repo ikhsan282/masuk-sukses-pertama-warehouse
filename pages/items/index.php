@@ -49,16 +49,17 @@ include __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-box-seam me-2 text-primary"></i>Data Barang</h4>
-  <?php if (can('items.create')): ?>
-  <div class="d-flex gap-2">
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <?= master_export_dropdown_html(['q' => $search, 'category_id' => $cat_filter ?: '']) ?>
+    <?php if (can('items.create')): ?>
     <a href="<?= APP_URL ?>/pages/items/import.php" class="btn btn-outline-primary btn-sm">
       <i class="bi bi-file-earmark-arrow-up me-1"></i>Import Excel/CSV
     </a>
     <a href="<?= APP_URL ?>/pages/items/create.php" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-lg me-1"></i>Tambah Barang
     </a>
+    <?php endif; ?>
   </div>
-  <?php endif; ?>
 </div>
 
 <div class="card table-card">

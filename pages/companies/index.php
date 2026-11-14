@@ -137,11 +137,14 @@ include __DIR__ . '/../../includes/header.php';
     </ol></nav>
     <h4 class="mb-0"><i class="bi bi-buildings me-2 text-primary"></i>Daftar Perusahaan (Holding & Subsidiaries)</h4>
   </div>
-  <?php if (can('companies.create')): ?>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#formModal">
-    <i class="bi bi-plus-lg me-1"></i>Tambah PT / Perusahaan
-  </button>
-  <?php endif; ?>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <?= master_export_dropdown_html() ?>
+    <?php if (can('companies.create')): ?>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#formModal">
+      <i class="bi bi-plus-lg me-1"></i>Tambah PT / Perusahaan
+    </button>
+    <?php endif; ?>
+  </div>
 </div>
 
 <div class="card table-card shadow-sm">

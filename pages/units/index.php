@@ -62,11 +62,14 @@ include __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-rulers me-2 text-primary"></i>Satuan Barang</h4>
-  <?php if (can('units.create')): ?>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#formModal">
-    <i class="bi bi-plus-lg me-1"></i>Tambah Satuan
-  </button>
-  <?php endif; ?>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <?= master_export_dropdown_html() ?>
+    <?php if (can('units.create')): ?>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#formModal">
+      <i class="bi bi-plus-lg me-1"></i>Tambah Satuan
+    </button>
+    <?php endif; ?>
+  </div>
 </div>
 
 <div class="card table-card">
