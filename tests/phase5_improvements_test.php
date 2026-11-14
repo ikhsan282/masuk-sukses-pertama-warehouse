@@ -472,13 +472,14 @@ try {
             'Brute-force guard mengunci login (HTTP 429) setelah 5 percobaan sandi salah'
         );
 
-        // Report PDF & Excel XLSX live export checks across all 5 reports
+        // Report PDF & Excel XLSX live export checks across all 6 reports
         $reports = [
             'stock'                => ['ui' => '/pages/reports/stock.php',                'exp' => '/pages/reports/stock_export.php'],
             'mutation'             => ['ui' => '/pages/reports/mutation.php',             'exp' => '/pages/reports/mutation_export.php'],
             'stock-in'             => ['ui' => '/pages/reports/stock-in.php',             'exp' => '/pages/reports/stock-in_export.php'],
             'stock-out'            => ['ui' => '/pages/reports/stock-out.php',            'exp' => '/pages/reports/stock-out_export.php'],
             'supplier-performance' => ['ui' => '/pages/reports/supplier-performance.php', 'exp' => '/pages/reports/supplier-performance_export.php'],
+            'slow-moving'          => ['ui' => '/pages/reports/slow-moving.php',          'exp' => '/pages/reports/slow-moving_export.php'],
         ];
         foreach ($reports as $rName => $paths) {
             $uiRes = p5_http($baseUrl . $paths['ui'], null, $saCookie, false);
@@ -731,12 +732,18 @@ try {
             'Users export bebas bocoran hash password dan menolak role Viewer (HTTP 403)'
         );
 
-        // Portal Mobile PWA Multi-PT & Dark Mode + Windows Cron Alert Script
+        // Portal Mobile PWA Multi-PT, Quick Camera Barcode Lookup & Dark Mode + Windows Cron Alert Script
         $sfPortal = p5_http($baseUrl . '/pages/portal.php', null, $sfCookie, false);
         $vwPortal = p5_http($baseUrl . '/pages/portal.php', null, $vwCookie, false);
+        $sfScanSearch = p5_http($baseUrl . '/pages/items/search.php?include_stock=1&q=OPL', null, $sfCookie, false);
+        $sfScanJson = json_decode($sfScanSearch['body'], true);
         p5_assert(
             $sfPortal['code'] === 200
             && str_contains($sfPortal['body'], 'id="darkToggle"')
+            && str_contains($sfPortal['body'], 'id="portalScanBtn"')
+            && str_contains($sfPortal['body'], 'id="homeScanBtn"')
+            && str_contains($sfPortal['body'], 'id="scannerModal"')
+            && str_contains($sfPortal['body'], 'html5-qrcode.min.js')
             && str_contains($sfPortal['body'], 'prefers-color-scheme:dark')
             && str_contains($sfPortal['body'], '/pages/profile.php')
             && str_contains($sfPortal['body'], '/auth/switch-company.php')
@@ -745,8 +752,11 @@ try {
             && str_contains($sfPortal['body'], '[SLN]')
             && !str_contains($sfPortal['body'], 'PT Prima Distribusi Mandiri')
             && !str_contains($vwPortal['body'], 'PT Sukses Logistik Nusantara')
+            && $sfScanSearch['code'] === 200
+            && is_array($sfScanJson) && !empty($sfScanJson)
+            && array_key_exists('qty', $sfScanJson[0]) && array_key_exists('locations', $sfScanJson[0])
             && file_exists($root . '/cron/low_stock_alert.ps1'),
-            'Portal Mobile PWA mendukung Multi-PT switcher scoped, prefers-color-scheme/darkToggle, link Profil & cron/low_stock_alert.ps1 tersedia'
+            'Portal Mobile PWA mendukung Quick Camera Barcode Lookup (include_stock=1), Multi-PT switcher scoped, darkToggle & link Profil'
         );
 
         // Performance optimizations: lazy html5-qrcode, preconnect, SARGable audit logs + idx_audit_created_id, single-pass low_stock parity, .htaccess.production
@@ -910,6 +920,100 @@ try {
         foreach ([$secCookie, $secAnonCookie, $secCookie2] as $sf) {
             if (file_exists($sf)) @unlink($sf);
         }
+
+        // Slow-Moving & Dead Stock functional data verification (old stocked item vs PDF/CSV)
+        $catId = (int)$db->query('SELECT id FROM categories ORDER BY id LIMIT 1')->fetch_row()[0];
+        $unitId = (int)$db->query('SELECT id FROM units ORDER BY id LIMIT 1')->fetch_row()[0];
+        $smCode = 'P5SM-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+        $smName = 'Ban Dead Stock ' . $smCode;
+        $smCreated = date('Y-m-d H:i:s', strtotime('-200 days'));
+        $stSmItem = $db->prepare('INSERT INTO items (code, name, category_id, unit_id, min_stock, buy_price, sell_price, is_active, created_at) VALUES (?, ?, ?, ?, 2, 1250000, 1600000, 1, ?)');
+        $stSmItem->bind_param('ssiis', $smCode, $smName, $catId, $unitId, $smCreated);
+        $stSmItem->execute();
+        $smItemId = (int)$db->insert_id;
+        $stSmItem->close();
+        $pdmFixtures[] = ['items', 'id', $smItemId];
+
+        $stSmStk = $db->prepare('INSERT INTO stock (company_id, item_id, location_id, quantity) VALUES (1, ?, ?, 8)');
+        $stSmStk->bind_param('ii', $smItemId, $locId);
+        $stSmStk->execute();
+        $smStockId = (int)$db->insert_id;
+        $stSmStk->close();
+        $pdmFixtures[] = ['stock', 'id', $smStockId];
+
+        $smUi = p5_http($baseUrl . '/pages/reports/slow-moving.php?days=90&class=dead&q=' . urlencode($smCode), null, $saCookie, false);
+        $smCsv = p5_http($baseUrl . '/pages/reports/slow-moving_export.php?format=csv&days=90&class=dead&q=' . urlencode($smCode), null, $saCookie, false);
+        p5_assert(
+            $smUi['code'] === 200
+            && str_contains($smUi['body'], $smCode)
+            && str_contains($smUi['body'], 'Dead Stock')
+            && $smCsv['code'] === 200
+            && str_contains($smCsv['body'], $smCode)
+            && str_contains($smCsv['body'], '10000000'),
+            'Laporan Slow-Moving & Dead Stock mendeteksi SKU mengendap, nilai tertahan akurat & CSV valid'
+        );
+
+        // Hardening Foto Barang (validate_item_image_file): real PNG passes, PHP/text polyglot rejected
+        $tmpGoodImg = sys_get_temp_dir() . '/p5_good_' . uniqid() . '.png';
+        $tmpPolyImg = sys_get_temp_dir() . '/p5_poly_' . uniqid() . '.png';
+        file_put_contents($tmpGoodImg, captcha_render_png('12345', 180, 54, false));
+        file_put_contents($tmpPolyImg, "<?php echo 'hack'; ?>\n" . str_repeat('X', 64));
+        $goodMeta = validate_item_image_file($tmpGoodImg);
+        $polyRejected = false;
+        try {
+            validate_item_image_file($tmpPolyImg);
+        } catch (RuntimeException $e) {
+            $polyRejected = true;
+        }
+        @unlink($tmpGoodImg);
+        @unlink($tmpPolyImg);
+        p5_assert(
+            ($goodMeta['ext'] ?? '') === 'png' && ($goodMeta['width'] ?? 0) === 180 && $polyRejected,
+            'validate_item_image_file() menerima PNG raster valid dan menolak payload teks/polyglot PHP'
+        );
+
+        // Operational /health.php authorization & runtime diagnostics + log retention CLI
+        $healthAnon  = p5_http($baseUrl . '/health.php', null, $anCookie, false);
+        $healthStaff = p5_http($baseUrl . '/health.php', null, $sfCookie, false);
+        $healthAdmin = p5_http($baseUrl . '/health.php', null, $saCookie, false);
+        $healthJson  = json_decode($healthAdmin['body'], true);
+        p5_assert(
+            $healthAnon['code'] === 403 && $healthStaff['code'] === 403
+            && $healthAdmin['code'] === 200
+            && ($healthJson['status'] ?? '') === 'ok'
+            && ($healthJson['checks']['database']['tables'] ?? 0) >= 30
+            && ($healthJson['checks']['storage']['status'] ?? '') === 'ok',
+            'Endpoint /health.php memblokir publik/Staff (403) dan melaporkan status DB/ekstensi/storage untuk Admin (200)'
+        );
+
+        // Log retention CLI dry-run & archival cleanup on synthetic 400-day-old audit row
+        $oldAuditAt = date('Y-m-d H:i:s', strtotime('-400 days'));
+        $stOldAud = $db->prepare("INSERT INTO audit_logs (username, action, entity_type, description, ip_address, created_at) VALUES (?, 'p5.cleanup_probe', 'system', 'Synthetic retention probe', '127.0.0.1', ?)");
+        $probeUser = 'p5_cleanup_' . substr($auditRefTag, 3);
+        $stOldAud->bind_param('ss', $probeUser, $oldAuditAt);
+        $stOldAud->execute();
+        $oldAudId = (int)$db->insert_id;
+        $stOldAud->close();
+
+        $phpExe = PHP_BINARY ?: 'php';
+        $cmdDry = escapeshellarg($phpExe) . ' ' . escapeshellarg($root . '/cron/cleanup_audit_logs.php') . ' --days=365 --dry-run --json';
+        $cmdRun = escapeshellarg($phpExe) . ' ' . escapeshellarg($root . '/cron/cleanup_audit_logs.php') . ' --days=365 --archive --json';
+        $dryJson = json_decode((string)shell_exec($cmdDry), true);
+        $runJson = json_decode((string)shell_exec($cmdRun), true);
+        $stillExists = (int)$db->query("SELECT COUNT(*) FROM audit_logs WHERE id={$oldAudId}")->fetch_row()[0];
+        $archiveExists = !empty($runJson['archive_file']) && is_file($root . '/' . $runJson['archive_file']);
+        if ($archiveExists) {
+            @unlink($root . '/' . $runJson['archive_file']);
+        }
+        if ($stillExists > 0) {
+            $db->query("DELETE FROM audit_logs WHERE id={$oldAudId}");
+        }
+        p5_assert(
+            is_array($dryJson) && ($dryJson['dry_run'] ?? false) === true && ($dryJson['eligible_audit'] ?? 0) >= 1
+            && is_array($runJson) && ($runJson['deleted_audit'] ?? 0) >= 1
+            && $stillExists === 0 && $archiveExists,
+            'cron/cleanup_audit_logs.php --dry-run & --archive mengarsipkan lalu menghapus log >365 hari secara aman'
+        );
     }
 } finally {
     // Cleanup temporary test rows & files
@@ -941,7 +1045,7 @@ try {
         $al->close();
     }
     // Remove synthetic import / Phase 5 report export & security probe audit/rate-limit noise from this test run
-    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%' OR action IN ('company.switch', 'session_revoked', 'session_invalidated', 'login_captcha_failed', 'password_reset_throttled', 'password_reset_complete') AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
+    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%' OR ((action IN ('company.switch', 'session_revoked', 'session_invalidated', 'login_captcha_failed', 'password_reset_throttled', 'password_reset_complete') OR entity_type = 'report_slow_moving') AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE))");
     $unitLike = '%' . $unitCode . '%';
     $cleanAudit->bind_param('s', $unitLike);
     $cleanAudit->execute();

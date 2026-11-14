@@ -50,8 +50,9 @@ defined('SESSION_LIFETIME') || define('SESSION_LIFETIME', 7200); // 2 hours
 defined('PER_PAGE') || define('PER_PAGE', 20);
 
 // Company identity fallback (printed docs prioritize active company record from `companies` table)
-defined('COMPANY_NAME')    || define('COMPANY_NAME', 'PT Masuk Sukses Pertama');
-defined('COMPANY_ADDRESS') || define('COMPANY_ADDRESS', 'The East Building Lt. 37 Mega Kuningan, Jakarta Selatan');
+defined('COMPANY_NAME')       || define('COMPANY_NAME', 'PT Masuk Sukses Pertama');
+defined('COMPANY_ADDRESS')    || define('COMPANY_ADDRESS', 'The East Building Lt. 37 Mega Kuningan, Jakarta Selatan');
+defined('HEALTH_CHECK_TOKEN') || define('HEALTH_CHECK_TOKEN', '');
 
 date_default_timezone_set(APP_TIMEZONE);
 

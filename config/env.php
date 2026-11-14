@@ -46,7 +46,7 @@ if (!defined('MSP_ENV_LOADED')) {
         'APP_NAME', 'APP_URL', 'APP_TIMEZONE',
         'MAIL_DRIVER', 'MAIL_FROM', 'MAIL_FROM_NAME',
         'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_SECURE',
-        'COMPANY_NAME', 'COMPANY_ADDRESS',
+        'COMPANY_NAME', 'COMPANY_ADDRESS', 'HEALTH_CHECK_TOKEN',
     ];
     foreach ($mapString as $k) {
         if (!defined($k)) {

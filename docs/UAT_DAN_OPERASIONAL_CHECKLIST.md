@@ -26,8 +26,13 @@ Jalankan seluruh pemeriksaan berikut dari root direktori aplikasi sebelum membuk
    - Entitas PT default aktif (`MSP`, `SLN`, `PDM`) dan `4` role inti (`Super Admin`, `Admin`, `Staff Gudang`, `Viewer`).
    - `48/48` composite & lookup indexes pada `16` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, index `audit_logs`, dan index `user_remember_tokens`).
 
-3. **Verifikasi Proteksi Direktori Backup over HTTP**
-   - Uji akses URL `<APP_URL>/backups/` melalui browser/curl. Server wajib mengembalikan HTTP **`403 Forbidden`**.
+3. **Verifikasi Proteksi Direktori Backup/Logs & Monitoring `/health.php`**
+   - Uji akses URL `<APP_URL>/backups/` dan `<APP_URL>/logs/` melalui browser/curl. Server wajib mengembalikan HTTP **`403 Forbidden`**.
+   - Uji endpoint `<APP_URL>/health.php` sebagai user publik (wajib **`403 Forbidden`**) dan sebagai **Admin / Super Admin** atau dengan header `X-Health-Token` yang sesuai dengan `HEALTH_CHECK_TOKEN` di `.env` (wajib **`200 OK`** dengan status `"ok"`).
+   - Jadwalkan retensi log bulanan/mingguan agar disk hosting terjaga:
+     ```bash
+     php cron/cleanup_audit_logs.php --days=365 --archive
+     ```
 
 ---
 

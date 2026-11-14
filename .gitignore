@@ -5,5 +5,7 @@ backups/*.sql
 backups/*.sql.gz
 backups/*.zip
 logs/*.log
+logs/*.csv
+logs/*.csv.gz
 *.bak
 *.tmp

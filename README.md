@@ -37,14 +37,14 @@ Sistem ini telah disesuaikan dengan profil bisnis riil **PT Masuk Sukses Pertama
 - **Tanpa Composer / `ext-zip`**: Dibangun menggunakan mesin PDF 1.4 vektor murni & OOXML ZIP builder internal ([`includes/export.php`](includes/export.php) & [`includes/item-import.php`](includes/item-import.php)).
 - **Export Terpadu PDF, Excel, CSV (CWE-1236 formula-safe) & Tampilan Cetak** tersedia pada:
   - Seluruh **6 Data Master**: Perusahaan (PT), Barang, Kategori, Satuan, Supplier, dan Lokasi.
-  - Seluruh **5 Laporan**: Laporan Stok, Mutasi Barang, Barang Masuk, Barang Keluar, dan Performa Supplier.
+  - Seluruh **6 Laporan**: Laporan Stok, Mutasi Barang, Barang Masuk, Barang Keluar, Performa Supplier, dan **Slow-Moving & Dead Stock** ([`pages/reports/slow-moving.php`](pages/reports/slow-moving.php)).
   - Modul Operasional & Admin: **Cek Stok** (`pages/stock/`), **Peringatan Stok** (`pages/stock/alerts.php`), **Laporan Variance Stock Opname**, **Audit Log**, dan **Manajemen Pengguna** (tanpa membocorkan hash kata sandi/token).
 - **Import Barang Massal**: Mendukung unggah `.xlsx` dan `.csv` dengan pratinjau validasi sebelum disimpan.
 
 ### 4. Pemindaian Barcode, Dark Mode Merata, Self-Service Profil & PWA
 - **Barcode / QR Scanner & Label SVG**: Pemindaian via kamera menggunakan pustaka lokal `html5-qrcode` dan cetak label barcode Code 39 berbasis SVG.
 - **Dark Mode Merata & Otomatis**: Mendukung preferensi OS (`prefers-color-scheme:dark`) maupun toggle `#darkToggle` (`mw_theme`) pada [Landing Page](index.php), seluruh halaman otentikasi (`login`, `forgot-password`, `reset-password`, `verify-email`), aplikasi desktop, dan [Portal Mobile PWA](pages/portal.php).
-- **Portal Mobile PWA**: Tampilan ringkas mobile untuk *Staff Gudang* & *Viewer* dengan *Multi-PT Switcher*, pencarian katalog server/klien hingga 500+ item, badge status stok, dan tautan cepat ubah profil/kata sandi.
+- **Portal Mobile PWA**: Tampilan ringkas mobile untuk *Staff Gudang* & *Viewer* dengan *Multi-PT Switcher*, **Quick Camera Barcode Lookup** (pemindaian kamera `html5-qrcode` langsung menampilkan stok real-time & lokasi rak SKU di PT aktif via `pages/items/search.php?include_stock=1`), pencarian katalog server/klien, badge status stok, serta tautan cepat ubah profil/kata sandi.
 - **Self-Service Akun & *Ingat saya***: Pengguna dapat memperbarui nama lengkap dan mengganti kata sandi secara mandiri melalui [`pages/profile.php`](pages/profile.php), serta menikmati login persisten 30 hari (*Ingat saya*) yang aman dengan rotasi token di tabel `user_remember_tokens`.
 
 ---
@@ -234,15 +234,17 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 - ✅ `master_export_test.php`: **Passed (31 / 31)**
 - ✅ `multi_company_test.php`: **Passed (29 / 29)**
 - ✅ `partial_receive_test.php`: **Passed (20 / 20)**
-- ✅ `phase5_improvements_test.php`: **Passed (55 / 55)**
+- ✅ `phase5_improvements_test.php`: **Passed (62 / 62)**
 - ✅ `stock_opname_test.php`: **Passed (14 / 14)**
 - ✅ `supplier_returns_test.php`: **Passed (20 / 20)**
 - ✅ `uat_roles_workflow_test.php`: **Passed (31 / 31)**
-- **Total: 329 Pengecekan / Assertions Lulus 100% tanpa regresi.**
+- **Total: 336 Pengecekan / Assertions Lulus 100% tanpa regresi.**
 
-### Skrip Penjadwalan (*Cron / Task Scheduler*)
+### Skrip Penjadwalan & Operasional Produksi (*Cron / Task Scheduler*)
 - **Windows Backup Harian (02:00)**: `powershell -ExecutionPolicy Bypass -File cron/backup_db.ps1`
 - **Windows Low-Stock Alert Harian (08:00)**: `powershell -ExecutionPolicy Bypass -File cron/low_stock_alert.ps1 -AdminEmail admin@mspgrup.co.id`
+- **Retensi & Arsip Audit Log**: `php cron/cleanup_audit_logs.php --days=365 --archive` (juga mendukung `--dry-run` & `--json`, sekaligus membersihkan `user_remember_tokens` kedaluwarsa dan `login_attempts` usang).
+- **Monitoring Readiness ([`health.php`](health.php))**: Pemeriksaan koneksi DB, jumlah tabel inti, ekstensi PHP, izin tulis `uploads/`/`logs/`/`backups/`, dan umur backup terbaru (hanya dapat diakses via CLI, sesi Admin/Super Admin, atau token `HEALTH_CHECK_TOKEN`).
 - **Linux / cPanel**: Lihat panduan lengkap registrasi cron dan checklist go-live di [`docs/UAT_DAN_OPERASIONAL_CHECKLIST.md`](docs/UAT_DAN_OPERASIONAL_CHECKLIST.md).
 
 ---
@@ -253,8 +255,8 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 2. **Multi-PT Isolation (Anti-IDOR)**: Validasi kepemilikan `company_id` pada seluruh endpoint transaksi, cetak dokumen, export laporan, serta POST spoofing lintas perusahaan.
 3. **Password Hashing & Proteksi Token**: Password di-hash `PASSWORD_BCRYPT` (`cost => 12`), sedangkan token *Ingat saya* (`selector:validator`), `reset_token`, dan `verification_token` disimpan sebagai hash SHA-256 dengan pencabutan menyeluruh saat logout/ubah sandi/reset sandi/nonaktif akun.
 4. **Brute-Force, Adaptive Numeric Image CAPTCHA, Rate-Limit & Audit Trail**: Pembatasan 5 kali percobaan gagal masuk (`HTTP 429` selama 5 menit), **Adaptive Numeric Image CAPTCHA** pure-PHP PNG ([`auth/captcha.php`](auth/captcha.php) & [`includes/captcha.php`](includes/captcha.php)) yang tersembunyi pada kondisi normal dan aktif otomatis setelah 2 kali gagal login (tantangan sekali pakai ter-hash SHA-256 + penolakan cache `no-store`), pembatasan frekuensi permintaan *lupa kata sandi* per IP/email, serta pencatatan seluruh aktivitas & security event (`login_captcha_failed`, `login_locked`, dll.) ke `audit_logs`.
-5. **CSRF, XSS & Email Hardening**: Token CSRF unik per sesi pada seluruh aksi `POST` termasuk perpindahan perusahaan (`auth/switch-company.php`), output & body email di-escape `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`, filter pencarian memakai `escape_like()`, dan export CSV/XLSX disanitasi terhadap injeksi formula (CWE-1236).
-6. **Session Validation, RBAC & Security Headers**: Cookie sesi memakai `HttpOnly`, `SameSite=Lax`, otorisasi berbasis izin (`require_perm()`), validasi sesi aktif real-time (`auth_validate_active_session()` untuk nonaktif/ganti sandi/perubahan izin peran), serta proteksi direktori sensitif & `Content-Security-Policy` di [`.htaccess`](.htaccess) dan [`.htaccess.production`](.htaccess.production).
+5. **CSRF, XSS, Upload & Email Hardening**: Token CSRF unik per sesi pada seluruh aksi `POST` termasuk perpindahan perusahaan (`auth/switch-company.php`), output & body email di-escape `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`, filter pencarian memakai `escape_like()`, validasi unggah foto barang (`validate_item_image_file()` memeriksa `finfo` MIME sekaligus keaslian dimensi/header raster via `getimagesize()`), dan export CSV/XLSX disanitasi terhadap injeksi formula (CWE-1236).
+6. **Session Validation, RBAC & Security Headers**: Cookie sesi memakai `HttpOnly`, `SameSite=Lax`, otorisasi berbasis izin (`require_perm()`), validasi sesi aktif real-time (`auth_validate_active_session()` untuk nonaktif/ganti sandi/perubahan izin peran), endpoint diagnostik [`health.php`](health.php) berproteksi Admin/`HEALTH_CHECK_TOKEN`, serta proteksi direktori sensitif (`config/`, `logs/`, `backups/`, `uploads/items/`) & `Content-Security-Policy` di [`.htaccess`](.htaccess) dan [`.htaccess.production`](.htaccess.production).
 7. **Optimasi Performa End-to-End**:
    - **Frontend**: `html5-qrcode.min.js` (~375 KB) dimuat kondisional hanya pada halaman dengan modal scanner, serta `dns-prefetch` & `preconnect` ke `https://cdn.jsdelivr.net`.
    - **Database & Query**: Filter tanggal `audit_logs` memakai perbandingan rentang *SARGable* (`idx_audit_created_id`), penghapusan *correlated subqueries* serta penggabungan query agregasi satu pass (*single-pass*) pada Dashboard, Stok, Peringatan Stok, serta Laporan Masuk/Keluar (*deferred join*).

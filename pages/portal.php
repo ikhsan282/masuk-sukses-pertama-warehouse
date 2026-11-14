@@ -132,6 +132,9 @@ $active_tab = $search !== '' ? 'stock' : 'home';
         </div>
       </div>
     </div>
+    <button type="button" class="btn btn-success w-100 mb-3 fw-semibold" id="homeScanBtn">
+      <i class="bi bi-upc-scan me-2"></i>Scan Barcode / QR Cek Stok (<?= e($comp['code'] ?? 'PT') ?>)
+    </button>
     <h6>Aktivitas Terbaru — <?= e($comp['code'] ?? 'PT') ?></h6>
     <?php if (empty($tx)): ?>
       <div class="card p-3 text-body-secondary small">Belum ada transaksi tercatat pada PT aktif.</div>
@@ -146,11 +149,15 @@ $active_tab = $search !== '' ? 'stock' : 'home';
   <section class="view <?= $active_tab === 'stock' ? 'active' : '' ?>" id="stock">
     <form method="GET" class="input-group mb-2">
       <input class="form-control" id="q" name="q" value="<?= e($search) ?>" placeholder="Cari kode atau nama barang...">
+      <button class="btn btn-success" type="button" id="portalScanBtn" title="Scan Barcode / QR Kamera" aria-label="Scan Barcode atau QR dengan kamera">
+        <i class="bi bi-upc-scan"></i>
+      </button>
       <button class="btn btn-outline-success" type="submit" title="Cari di database"><i class="bi bi-search"></i></button>
       <?php if ($search !== ''): ?>
         <a href="<?= APP_URL ?>/pages/portal.php" class="btn btn-outline-secondary" title="Reset"><i class="bi bi-x-lg"></i></a>
       <?php endif; ?>
     </form>
+    <div id="portalScanResult" class="d-none mb-2"></div>
     <div class="small text-body-secondary mb-2">
       Menampilkan <?= count($stock) ?> dari <?= number_format($total_items, 0, ',', '.') ?> barang aktif (<?= e($comp['code'] ?? 'PT') ?>)<?= $total_items > $stock_limit && $search === '' ? ' — tekan Enter untuk cari ke seluruh katalog' : '' ?>
     </div>
@@ -217,31 +224,185 @@ $active_tab = $search !== '' ? 'stock' : 'home';
   <?php endforeach; ?>
 </nav>
 
+<?php include __DIR__ . '/../includes/scanner-modal.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="<?= APP_URL ?>/assets/vendor/html5-qrcode/html5-qrcode.min.js?v=<?= @filemtime(__DIR__ . '/../assets/vendor/html5-qrcode/html5-qrcode.min.js') ?: '1' ?>"></script>
 <?= theme_toggle_script() ?>
 <script>
+function switchPortalView(viewName) {
+  document.querySelectorAll('.view,.bottom button').forEach(function (x) { x.classList.remove('active'); });
+  var target = document.getElementById(viewName);
+  var navBtn = document.querySelector('.bottom button[data-view="' + viewName + '"]');
+  if (target) target.classList.add('active');
+  if (navBtn) navBtn.classList.add('active');
+}
 document.querySelectorAll('[data-view]').forEach(function (b) {
-  b.onclick = function () {
-    document.querySelectorAll('.view,.bottom button').forEach(function (x) { x.classList.remove('active'); });
-    var target = document.getElementById(b.dataset.view);
-    if (target) target.classList.add('active');
-    b.classList.add('active');
-  };
+  b.onclick = function () { switchPortalView(b.dataset.view); };
 });
 var qEl = document.getElementById('q');
-if (qEl) {
-  qEl.addEventListener('input', function () {
-    var needle = qEl.value.toLowerCase();
-    var visible = 0;
-    document.querySelectorAll('.item').forEach(function (x) {
-      var show = x.dataset.q.indexOf(needle) !== -1;
-      x.hidden = !show;
-      if (show) visible++;
-    });
-    var emptyEl = document.getElementById('emptyStock');
-    if (emptyEl) emptyEl.classList.toggle('d-none', visible > 0);
+function filterLocalStockList() {
+  if (!qEl) return;
+  var needle = qEl.value.toLowerCase();
+  var visible = 0;
+  document.querySelectorAll('.item').forEach(function (x) {
+    var show = x.dataset.q.indexOf(needle) !== -1;
+    x.hidden = !show;
+    if (show) visible++;
   });
+  var emptyEl = document.getElementById('emptyStock');
+  if (emptyEl) emptyEl.classList.toggle('d-none', visible > 0);
 }
+if (qEl) {
+  qEl.addEventListener('input', filterLocalStockList);
+}
+
+var scanResultBox = document.getElementById('portalScanResult');
+var scannerModalEl = document.getElementById('scannerModal');
+var scannerReader  = document.getElementById('scanner-reader');
+var portalScanner  = null;
+var portalScanning = false;
+
+function renderPortalLookupCard(code, item) {
+  if (!scanResultBox) return;
+  scanResultBox.innerHTML = '';
+  scanResultBox.classList.remove('d-none');
+
+  var card = document.createElement('div');
+  card.className = item ? 'card border-success p-3 shadow-sm' : 'alert alert-warning mb-0 d-flex justify-content-between align-items-center gap-2';
+
+  if (!item) {
+    var span = document.createElement('span');
+    span.className = 'small';
+    span.textContent = 'Barcode "' + code + '" tidak ditemukan di katalog aktif.';
+    var closeAlert = document.createElement('button');
+    closeAlert.type = 'button';
+    closeAlert.className = 'btn-close btn-sm';
+    closeAlert.onclick = function () { scanResultBox.classList.add('d-none'); };
+    card.appendChild(span);
+    card.appendChild(closeAlert);
+    scanResultBox.appendChild(card);
+    return;
+  }
+
+  var top = document.createElement('div');
+  top.className = 'd-flex justify-content-between align-items-start gap-2 mb-2';
+  var titleWrap = document.createElement('div');
+  titleWrap.className = 'min-w-0';
+  var badgeLabel = document.createElement('span');
+  badgeLabel.className = 'badge text-bg-light border text-success mb-1';
+  badgeLabel.textContent = 'Hasil Scan Kamera';
+  var h = document.createElement('div');
+  h.className = 'fw-bold text-truncate';
+  h.textContent = item.name || item.text || code;
+  var meta = document.createElement('small');
+  meta.className = 'text-body-secondary d-block';
+  meta.textContent = (item.code || code) + ' · Min ' + (item.min_stock ?? 0);
+  titleWrap.appendChild(badgeLabel);
+  titleWrap.appendChild(h);
+  titleWrap.appendChild(meta);
+
+  var rightWrap = document.createElement('div');
+  rightWrap.className = 'text-end flex-shrink-0';
+  var qtyVal = Number(item.qty || 0);
+  var minVal = Number(item.min_stock || 0);
+  var qtyBadge = document.createElement('span');
+  qtyBadge.className = 'badge fs-6 ' + (qtyVal === 0 ? 'text-bg-danger' : (qtyVal <= minVal ? 'text-bg-warning' : 'text-bg-success'));
+  qtyBadge.textContent = qtyVal.toLocaleString('id-ID') + ' ' + (item.unit || 'pcs');
+  var dismissBtn = document.createElement('button');
+  dismissBtn.type = 'button';
+  dismissBtn.className = 'btn btn-link btn-sm text-secondary p-0 d-block ms-auto mt-1';
+  dismissBtn.textContent = 'Tutup';
+  dismissBtn.onclick = function () { scanResultBox.classList.add('d-none'); };
+  rightWrap.appendChild(qtyBadge);
+  rightWrap.appendChild(dismissBtn);
+
+  top.appendChild(titleWrap);
+  top.appendChild(rightWrap);
+  card.appendChild(top);
+
+  var locs = Array.isArray(item.locations) ? item.locations : [];
+  var locWrap = document.createElement('div');
+  locWrap.className = 'small border-top pt-2';
+  if (locs.length === 0) {
+    locWrap.className += ' text-body-secondary';
+    locWrap.textContent = 'Belum ada stok tersedia di rak PT aktif.';
+  } else {
+    locWrap.textContent = 'Lokasi rak: ' + locs.map(function (l) {
+      return l.code + ' (' + Number(l.qty || 0).toLocaleString('id-ID') + ')';
+    }).join(', ');
+  }
+  card.appendChild(locWrap);
+  scanResultBox.appendChild(card);
+}
+
+function handlePortalDecodedBarcode(decodedText) {
+  var code = (decodedText || '').trim();
+  if (!code) return;
+  switchPortalView('stock');
+  if (qEl) {
+    qEl.value = code;
+    filterLocalStockList();
+  }
+  stopPortalScanner(true);
+
+  fetch('<?= APP_URL ?>/pages/items/search.php?include_stock=1&q=' + encodeURIComponent(code), { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : []; })
+    .then(function (list) {
+      var arr = Array.isArray(list) ? list : [];
+      var exact = arr.find(function (it) {
+        return String(it.code || '').trim().toLowerCase() === code.toLowerCase();
+      });
+      renderPortalLookupCard(code, exact || arr[0] || null);
+    })
+    .catch(function () {
+      renderPortalLookupCard(code, null);
+    });
+}
+
+function stopPortalScanner(hideModal) {
+  var inst = portalScanner;
+  portalScanner = null;
+  portalScanning = false;
+  if (inst) {
+    inst.stop().catch(function () {}).finally(function () { try { inst.clear(); } catch (e) {} });
+  }
+  if (hideModal && scannerModalEl) {
+    bootstrap.Modal.getOrCreateInstance(scannerModalEl).hide();
+  }
+}
+
+['portalScanBtn', 'homeScanBtn'].forEach(function (btnId) {
+  var btn = document.getElementById(btnId);
+  if (btn && scannerModalEl) {
+    btn.addEventListener('click', function () {
+      bootstrap.Modal.getOrCreateInstance(scannerModalEl).show();
+    });
+  }
+});
+
+if (scannerModalEl) {
+  scannerModalEl.addEventListener('shown.bs.modal', function () {
+    if (!scannerReader || portalScanning) return;
+    if (!window.Html5Qrcode) {
+      scannerReader.innerHTML = '<div class="alert alert-danger small mb-0">Scanner kamera gagal dimuat. Gunakan pencarian teks manual.</div>';
+      return;
+    }
+    portalScanner = new Html5Qrcode('scanner-reader');
+    portalScanning = true;
+    portalScanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 150 } },
+      handlePortalDecodedBarcode,
+      function () {}
+    ).catch(function () {
+      scannerReader.innerHTML = '<div class="alert alert-danger small mb-0">Kamera tidak dapat diakses. Pastikan izin kamera aktif dan koneksi menggunakan HTTPS.</div>';
+      portalScanning = false;
+      portalScanner = null;
+    });
+  });
+  scannerModalEl.addEventListener('hidden.bs.modal', function () { stopPortalScanner(false); });
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('<?= APP_URL ?>/sw.js');
 }

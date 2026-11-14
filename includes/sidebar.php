@@ -137,6 +137,9 @@ function nav_active(string $path): string {
     <a href="<?= APP_URL ?>/pages/reports/supplier-performance.php" class="sidebar-link <?= nav_active('/reports/supplier-performance') ?>">
       <i class="bi bi-award"></i><span class="sidebar-label">Performa Supplier</span>
     </a>
+    <a href="<?= APP_URL ?>/pages/reports/slow-moving.php" class="sidebar-link <?= nav_active('/reports/slow-moving') ?>">
+      <i class="bi bi-hourglass-split"></i><span class="sidebar-label">Slow-Moving &amp; Dead Stock</span>
+    </a>
     <?php endif; ?>
 
     <?php if (can('users.view') || can('roles.view')): ?>

@@ -697,30 +697,76 @@ function log_mutation(int $item_id, int $location_id, string $type, int $qty,
     $st->close();
 }
 
-// Upload item image (JPG/PNG/WebP, max 2MB)
-function upload_item_image(array $file, ?string $old_image = null): ?string {
-    if (empty($file['tmp_name']) || $file['error'] === UPLOAD_ERR_NO_FILE) return $old_image;
-    if ($file['error'] !== UPLOAD_ERR_OK) throw new RuntimeException('Upload foto gagal (kode ' . $file['error'] . ').');
-    if ($file['size'] > 2 * 1024 * 1024) throw new RuntimeException('Ukuran foto maksimal 2MB.');
+/**
+ * Validasi integritas file foto barang (ukuran <= 2MB, finfo MIME, header raster & dimensi).
+ * Mengembalikan ['mime' => string, 'ext' => string, 'width' => int, 'height' => int].
+ */
+function validate_item_image_file(string $tmp_path, ?int $reported_size = null): array {
+    if ($tmp_path === '' || !is_file($tmp_path) || !is_readable($tmp_path)) {
+        throw new RuntimeException('File foto sementara tidak dapat dibaca.');
+    }
+    $actual_size = (int)filesize($tmp_path);
+    $effective_size = $reported_size !== null ? max($actual_size, $reported_size) : $actual_size;
+    if ($actual_size <= 0 || $effective_size > 2 * 1024 * 1024) {
+        throw new RuntimeException('Ukuran foto maksimal 2MB.');
+    }
 
     $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime  = $finfo->file($file['tmp_name']);
-    $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    if (!isset($allowed[$mime])) throw new RuntimeException('Format foto harus JPG, PNG, atau WebP.');
+    $mime  = (string)$finfo->file($tmp_path);
+    $allowed = [
+        'image/jpeg' => ['ext' => 'jpg',  'type' => IMAGETYPE_JPEG],
+        'image/png'  => ['ext' => 'png',  'type' => IMAGETYPE_PNG],
+        'image/webp' => ['ext' => 'webp', 'type' => defined('IMAGETYPE_WEBP') ? IMAGETYPE_WEBP : 18],
+    ];
+    if (!isset($allowed[$mime])) {
+        throw new RuntimeException('Format foto harus JPG, PNG, atau WebP.');
+    }
+
+    $img_info = @getimagesize($tmp_path);
+    $width    = (int)($img_info[0] ?? 0);
+    $height   = (int)($img_info[1] ?? 0);
+    $img_type = (int)($img_info[2] ?? 0);
+    if (
+        $img_info === false
+        || $width < 1 || $height < 1
+        || $width > 8000 || $height > 8000
+        || $img_type !== $allowed[$mime]['type']
+        || (string)($img_info['mime'] ?? '') !== $mime
+    ) {
+        throw new RuntimeException('File foto tidak valid atau rusak (bukan gambar raster asli).');
+    }
+
+    return [
+        'mime'   => $mime,
+        'ext'    => $allowed[$mime]['ext'],
+        'width'  => $width,
+        'height' => $height,
+    ];
+}
+
+// Upload item image (JPG/PNG/WebP, max 2MB)
+function upload_item_image(array $file, ?string $old_image = null): ?string {
+    if (empty($file['tmp_name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) return $old_image;
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Upload foto gagal (kode ' . (int)$file['error'] . ').');
+    }
+
+    $meta = validate_item_image_file((string)$file['tmp_name'], (int)($file['size'] ?? 0));
 
     $dir = __DIR__ . '/../uploads/items';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
-    // Delete old image if replaced
+    $filename = 'item_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.' . $meta['ext'];
+    if (!move_uploaded_file((string)$file['tmp_name'], $dir . '/' . $filename)) {
+        throw new RuntimeException('Gagal menyimpan file foto.');
+    }
+
+    // Delete old image only after new validated image is saved successfully
     if ($old_image) {
         $old_path = $dir . '/' . basename($old_image);
         if (is_file($old_path)) @unlink($old_path);
     }
 
-    $filename = 'item_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.' . $allowed[$mime];
-    if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $filename)) {
-        throw new RuntimeException('Gagal menyimpan file foto.');
-    }
     return 'uploads/items/' . $filename;
 }
 
