@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/auth-layout.php';
 
 auth_guest();
 
@@ -22,20 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($f) $error = $f['message'];
     }
 }
-?><!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Masuk — <?= APP_NAME ?></title>
-  <script>(function(){try{var t=localStorage.getItem('mw_theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-bs-theme',t);}catch(e){}})();</script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="<?= APP_URL ?>/assets/css/style.css?v=<?= @filemtime(__DIR__ . '/../assets/css/style.css') ?: '1' ?>">
-</head>
-<body>
-<div class="auth-wrapper">
-  <div class="auth-card">
+auth_layout_start('Masuk');
+?>
     <div class="text-center mb-4">
       <div class="auth-logo"><i class="bi bi-boxes"></i></div>
       <div class="auth-logo fs-4"><?= APP_NAME ?></div>
@@ -78,16 +67,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <i class="bi bi-box-arrow-in-right me-1"></i>Masuk
       </button>
     </form>
-  </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-<script>
+<?php
+auth_layout_end(<<<'JS'
 function togglePwd() {
   const p = document.getElementById('password');
   const i = document.getElementById('eyeIcon');
   p.type = p.type === 'password' ? 'text' : 'password';
   i.className = p.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
 }
-</script>
-</body>
-</html>
+JS);

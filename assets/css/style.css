@@ -395,17 +395,96 @@ html[data-bs-theme=dark] .ts-wrapper.single .ts-control::after {
 /* ── Auth pages ─────────────────────────────────────────── */
 .auth-wrapper {
   min-height: 100vh;
+  padding: 1.5rem 1rem;
   background: linear-gradient(135deg, #1a3c2e 0%, #2d6a4f 100%);
   display: flex; align-items: center; justify-content: center;
 }
 .auth-card {
   width: 100%; max-width: 420px;
-  background: #fff; border-radius: 1rem;
+  position: relative;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 1rem;
   box-shadow: 0 8px 40px rgba(0,0,0,.18);
   padding: 2.5rem 2rem;
 }
+.auth-theme-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: .5rem;
+}
 .auth-logo { font-size: 1.6rem; font-weight: 800; color: var(--accent); }
 .auth-logo i { font-size: 2rem; }
+
+html[data-bs-theme=dark] .auth-wrapper {
+  background: linear-gradient(135deg, #0b1511 0%, #152b22 55%, #1d3a2d 100%);
+}
+html[data-bs-theme=dark] .auth-card {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  box-shadow: 0 12px 44px rgba(0,0,0,.5);
+}
+html[data-bs-theme=dark] .auth-logo { color: #3dd68c; }
+html[data-bs-theme=dark] .auth-card .text-primary { color: #52d68a !important; }
+html[data-bs-theme=dark] .auth-card a.text-primary:hover { color: #74e3a3 !important; }
+html[data-bs-theme=dark] .auth-card a.text-muted:hover { color: var(--text-primary) !important; }
+html[data-bs-theme=dark] .auth-card .input-group-text {
+  background-color: var(--surface-muted);
+  border-color: var(--border-color);
+  color: var(--text-muted);
+}
+html[data-bs-theme=dark] .auth-card .form-control {
+  background-color: #151f1b;
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+html[data-bs-theme=dark] .auth-card .form-control::placeholder { color: #7c8d85; }
+html[data-bs-theme=dark] .auth-card .form-control:focus {
+  background-color: #18231f;
+  border-color: var(--accent);
+}
+html[data-bs-theme=dark] .auth-card .form-control:-webkit-autofill,
+html[data-bs-theme=dark] .auth-card .form-control:-webkit-autofill:hover,
+html[data-bs-theme=dark] .auth-card .form-control:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 1000px #151f1b inset;
+  caret-color: var(--text-primary);
+}
+html[data-bs-theme=dark] .auth-card .btn-outline-secondary {
+  background-color: var(--surface-muted);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+html[data-bs-theme=dark] .auth-card .btn-outline-secondary:hover {
+  background-color: #2f433a;
+  border-color: #466155;
+  color: #fff;
+}
+html[data-bs-theme=dark] .auth-card .btn-outline-primary {
+  --bs-btn-color: #52d68a;
+  --bs-btn-border-color: #3dd68c;
+  --bs-btn-hover-bg: #198754;
+  --bs-btn-hover-border-color: #198754;
+  --bs-btn-hover-color: #fff;
+}
+html[data-bs-theme=dark] .auth-card .form-check-input {
+  background-color: #151f1b;
+  border-color: var(--border-color);
+}
+html[data-bs-theme=dark] .auth-card .form-check-input:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
 
 /* ── Badges / status ────────────────────────────────────── */
 .badge-low  { background: #fff3cd; color: #856404; }

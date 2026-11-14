@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/auth-layout.php';
 
 auth_guest();
 
@@ -18,18 +19,8 @@ if ($token) {
 } else {
     $error = 'Token verifikasi tidak ditemukan.';
 }
-?><!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Verifikasi Email — <?= APP_NAME ?></title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="<?= APP_URL ?>/assets/css/style.css">
-</head>
-<body>
-<div class="auth-wrapper">
-  <div class="auth-card text-center">
+auth_layout_start('Verifikasi Email', 'text-center');
+?>
     <div class="auth-logo mb-3"><i class="bi bi-boxes"></i></div>
     <?php if ($success): ?>
       <div class="mb-3"><i class="bi bi-patch-check-fill text-success" style="font-size:3rem"></i></div>
@@ -44,8 +35,4 @@ if ($token) {
       <p class="text-muted small"><?= htmlspecialchars($error) ?></p>
       <a href="<?= APP_URL ?>/auth/login.php" class="btn btn-outline-secondary w-100 mt-2">Kembali ke Halaman Masuk</a>
     <?php endif; ?>
-  </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
+<?php auth_layout_end();

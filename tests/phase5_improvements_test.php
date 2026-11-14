@@ -181,6 +181,7 @@ $sfCookie = sys_get_temp_dir() . '/p5_sf_' . uniqid() . '.cookie';
 $t1Cookie = sys_get_temp_dir() . '/p5_t1_' . uniqid() . '.cookie';
 $t2Cookie = sys_get_temp_dir() . '/p5_t2_' . uniqid() . '.cookie';
 $bfCookie = sys_get_temp_dir() . '/p5_bf_' . uniqid() . '.cookie';
+$anCookie = sys_get_temp_dir() . '/p5_an_' . uniqid() . '.cookie';
 
 $createdItemCodes = [];
 $createdUsernames = [];
@@ -190,11 +191,31 @@ $unameManual      = 'p5man_' . strtolower(substr($auditRefTag, 3));
 
 try {
     // Guest check on audit-logs
-    $guestAudit = p5_http($baseUrl . '/pages/audit-logs/index.php', null, sys_get_temp_dir() . '/p5_an_' . uniqid() . '.cookie', false);
+    $guestAudit = p5_http($baseUrl . '/pages/audit-logs/index.php', null, $anCookie, false);
     if ($guestAudit['code'] === 0) {
         p5_assert(false, 'Koneksi Apache live untuk uji Phase 5', $guestAudit['error']);
     } else {
-        p5_assert($guestAudit['code'] === 302 && stripos($guestAudit['headers'], 'login.php') !== false, 'Guest mengakses audit-logs diredirect ke login.php');
+        p5_assert(
+            $guestAudit['code'] === 302 && stripos($guestAudit['headers'], 'login.php') !== false,
+            'Guest mengakses audit-logs diredirect ke login.php'
+        );
+
+        // Auth pages dark mode support (login, forgot-password, reset-password, verify-email)
+        $cssText = @file_get_contents(__DIR__ . '/../assets/css/style.css') ?: '';
+        $authPagesOk = str_contains($cssText, 'html[data-bs-theme=dark] .auth-card')
+            && str_contains($cssText, 'html[data-bs-theme=dark] .auth-wrapper');
+        foreach (['/auth/login.php', '/auth/forgot-password.php', '/auth/reset-password.php', '/auth/verify-email.php'] as $ap) {
+            $apRes = p5_http($baseUrl . $ap, null, $anCookie, false);
+            $apOk = $apRes['code'] === 200
+                && str_contains($apRes['body'], "localStorage.getItem('mw_theme')")
+                && str_contains($apRes['body'], 'data-bs-theme')
+                && str_contains($apRes['body'], 'id="darkToggle"')
+                && str_contains($apRes['body'], 'assets/css/style.css?v=');
+            if (!$apOk) {
+                $authPagesOk = false;
+            }
+        }
+        p5_assert($authPagesOk, 'Seluruh halaman auth (login, forgot, reset, verify) mendukung dark mode (mw_theme + #darkToggle + CSS)');
 
         // Log in Super Admin, Viewer, Staff Gudang
         $lSa = p5_login($baseUrl, 'superadmin', 'P@ssw0rd', $saCookie);
@@ -430,7 +451,7 @@ try {
     $cleanAudit->execute();
     $cleanAudit->close();
 
-    foreach ([$tmpXlsx, $saCookie, $vwCookie, $sfCookie, $t1Cookie, $t2Cookie, $bfCookie] as $f) {
+    foreach ([$tmpXlsx, $saCookie, $vwCookie, $sfCookie, $t1Cookie, $t2Cookie, $bfCookie, $anCookie] as $f) {
         if (is_string($f) && file_exists($f)) @unlink($f);
     }
 }
