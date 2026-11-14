@@ -59,11 +59,7 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-arrow-down-up me-2 text-primary"></i>Laporan Mutasi Barang</h4>
-  <div class="btn-group btn-group-sm">
-    <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="mutation_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="mutation_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
-  </div>
+  <?= report_export_dropdown_html(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'item_id'=>$item_filter,'type'=>$type_filter], 'mutation_export.php') ?>
 </div>
 
 <div class="card table-card">

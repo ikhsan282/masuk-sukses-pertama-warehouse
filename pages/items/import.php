@@ -9,44 +9,52 @@ $db = getDB();
 $errors = [];
 $preview = null;
 $upload_key = null;
+$extension = '';
+
+function item_import_temp_path(string $uploadKey): ?string {
+    if (!preg_match('/^[a-f0-9]{32}$/i', $uploadKey)) {
+        return null;
+    }
+    return sys_get_temp_dir() . '/msp_import_' . hash('sha256', session_id() . ':' . $uploadKey);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
-    
-    if (isset($_POST['action']) && $_POST['action'] === 'clear') {
-        $key = req_str('upload_key');
-        $filename = 'msp_import_' . hash('sha256', session_id() . ':' . $key);
-        $path = sys_get_temp_dir() . '/' . $filename;
-        if (file_exists($path)) @unlink($path);
+    $postAction = req_str('action');
+
+    if ($postAction === 'clear') {
+        $path = item_import_temp_path(req_str('upload_key'));
+        if ($path && file_exists($path)) @unlink($path);
         set_flash('info', 'Preview dibersihkan.');
         redirect(APP_URL . '/pages/items/import.php');
-    }
-    
-    if (isset($_POST['action']) && $_POST['action'] === 'confirm') {
-        $key = req_str('upload_key');
-        $filename = 'msp_import_' . hash('sha256', session_id() . ':' . $key);
-        $path = sys_get_temp_dir() . '/' . $filename;
-        if (!file_exists($path)) {
-            set_flash('error', 'Data upload tidak ditemukan. Upload ulang.');
+    } elseif ($postAction === 'confirm') {
+        $path = item_import_temp_path(req_str('upload_key'));
+        if (!$path || !file_exists($path)) {
+            set_flash('error', 'Data upload tidak ditemukan atau sesi telah berakhir. Silakan upload ulang.');
             redirect(APP_URL . '/pages/items/import.php');
         }
-        
-        $extension = req_str('extension');
+
+        $extension = strtolower(req_str('extension'));
+        if (!in_array($extension, ['csv', 'xlsx'], true)) {
+            @unlink($path);
+            set_flash('error', 'Format import tidak valid.');
+            redirect(APP_URL . '/pages/items/import.php');
+        }
         try {
             $raw_rows = item_import_read($path, $extension);
             $preview_rows = item_import_preview($db, $raw_rows);
-            
+
             $valid = array_filter($preview_rows, fn($r) => empty($r['errors']) && !$r['exists']);
             if (empty($valid)) {
                 set_flash('error', 'Tidak ada baris yang dapat diimpor.');
                 redirect(APP_URL . '/pages/items/import.php');
             }
-            
+
             $db->begin_transaction();
             $inserted = 0;
             $stmt = $db->prepare('INSERT INTO items (code,name,category_id,unit_id,min_stock,buy_price,sell_price,description,is_active)
                 VALUES (?,?,?,?,?,?,?,?,1)');
-            
+
             foreach ($valid as $row) {
                 $stmt->bind_param('ssiiidds',
                     $row['code'], $row['name'], $row['category_id'], $row['unit_id'],
@@ -55,21 +63,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $stmt->close();
             $db->commit();
-            
+
             @unlink($path);
+            audit_log('items.import', 'items', null, '', "Mengimpor {$inserted} barang baru ({$extension})");
             set_flash('success', "Berhasil mengimpor $inserted barang.");
             redirect(APP_URL . '/pages/items/index.php');
-            
+
         } catch (Exception $e) {
             $db->rollback();
             $errors[] = $e->getMessage();
         }
-    }
-    
-    if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
+    } elseif (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['file'];
         $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        
+
         if (!in_array($extension, ['csv', 'xlsx'], true)) {
             $errors[] = 'Format file harus CSV atau XLSX.';
         } elseif ($file['size'] > 5 * 1024 * 1024) {
@@ -78,11 +85,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $raw_rows = item_import_read($file['tmp_name'], $extension);
                 $preview = item_import_preview($db, $raw_rows);
-                
+
                 $upload_key = bin2hex(random_bytes(16));
-                $temp_path = sys_get_temp_dir() . '/msp_import_' . $upload_key;
-                move_uploaded_file($file['tmp_name'], $temp_path);
-                
+                $temp_path = item_import_temp_path($upload_key);
+                if (!$temp_path || !move_uploaded_file($file['tmp_name'], $temp_path)) {
+                    throw new RuntimeException('Gagal menyimpan file sementara untuk konfirmasi import.');
+                }
             } catch (Exception $e) {
                 $errors[] = $e->getMessage();
             }

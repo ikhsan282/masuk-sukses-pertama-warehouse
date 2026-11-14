@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && can('roles.edit')) {
         $ins->close();
     }
     set_flash('success','Izin peran berhasil disimpan.');
+    audit_log('role.permissions', 'roles', $role_id, '', 'Memperbarui izin peran #' . $role_id . ' (' . count($perms) . ' izin)');
     redirect(APP_URL.'/pages/roles/index.php?role_id='.$role_id);
 }
 
@@ -98,7 +99,7 @@ $page_title='Peran & Izin'; include __DIR__.'/../../includes/header.php';
           <div class="row g-3">
             <?php foreach($grouped as $group => $perms): ?>
             <div class="col-md-4">
-              <div class="card border bg-light">
+              <div class="card border bg-body-tertiary">
                 <div class="card-header py-1 bg-white">
                   <strong class="small text-uppercase"><?=htmlspecialchars($group)?></strong>
                 </div>

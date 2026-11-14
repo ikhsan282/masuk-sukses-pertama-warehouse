@@ -70,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $st2->close();
             $db->commit();
+            audit_log('adjustment.create', 'stock_adjustment', (int)$adj_id, $ref_no, "Membuat draft penyesuaian stok {$ref_no} (" . count($valid_items) . ' item)', (int)$comp_id);
             set_flash('success', "Penyesuaian stok <strong>{$ref_no}</strong> tersimpan sebagai <strong>DRAFT</strong>. Menunggu persetujuan untuk diterapkan.");
             redirect(APP_URL . '/pages/adjustments/index.php');
         } catch (Exception $e) {

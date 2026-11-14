@@ -37,6 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             VALUES (?,?,?,?,?,?,?,?,?)');
         $st->bind_param('ssiiiddss', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image);
         if ($st->execute()) {
+            $new_item_id = (int)$db->insert_id;
+            audit_log('item.create', 'item', $new_item_id, '', "Menambah barang: {$name}");
             set_flash('success', "Barang <strong>" . htmlspecialchars($name) . "</strong> berhasil ditambahkan.");
             redirect(APP_URL . '/pages/items/index.php');
         } else {

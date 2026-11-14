@@ -35,6 +35,7 @@ $expectedTables = [
     'stock_adjustments', 'stock_adjustment_details',
     'purchase_orders', 'purchase_order_details',
     'supplier_returns', 'supplier_return_details', 'mutations',
+    'login_attempts', 'audit_logs',
 ];
 
 $requiredIndexes = [
@@ -105,6 +106,14 @@ $requiredIndexes = [
     'locations' => [
         'idx_locations_active_code' => ['is_active', 'code'],
     ],
+    'login_attempts' => [
+        'idx_login_attempts_lookup' => ['username_key', 'ip_address', 'attempted_at'],
+    ],
+    'audit_logs' => [
+        'idx_audit_comp_created'   => ['company_id', 'created_at', 'id'],
+        'idx_audit_action_created' => ['action', 'created_at', 'id'],
+        'idx_audit_user_created'   => ['user_id', 'created_at', 'id'],
+    ],
 ];
 
 function fetch_schema_charset(mysqli $db): ?array
@@ -166,8 +175,43 @@ if (!$charsetOk) {
     $errors[] = 'Database ' . DB_NAME . ' charset bukan utf8mb4 (' . ($schemaInfo['DEFAULT_CHARACTER_SET_NAME'] ?? 'unknown') . ')';
 }
 
+$tableDdl = [
+    'login_attempts' => "CREATE TABLE IF NOT EXISTS `login_attempts` (
+        `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        `username_key` VARCHAR(120) NOT NULL,
+        `ip_address` VARCHAR(45) NOT NULL,
+        `attempted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_login_attempts_lookup` (`username_key`, `ip_address`, `attempted_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    'audit_logs' => "CREATE TABLE IF NOT EXISTS `audit_logs` (
+        `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        `company_id` INT UNSIGNED NULL,
+        `user_id` INT UNSIGNED NULL,
+        `username` VARCHAR(60) NOT NULL DEFAULT '',
+        `action` VARCHAR(60) NOT NULL,
+        `entity_type` VARCHAR(50) NOT NULL DEFAULT '',
+        `entity_id` INT UNSIGNED NULL,
+        `reference_no` VARCHAR(60) NOT NULL DEFAULT '',
+        `description` VARCHAR(500) NOT NULL DEFAULT '',
+        `ip_address` VARCHAR(45) NOT NULL DEFAULT '',
+        `user_agent` VARCHAR(255) NOT NULL DEFAULT '',
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_audit_comp_created` (`company_id`, `created_at`, `id`),
+        INDEX `idx_audit_action_created` (`action`, `created_at`, `id`),
+        INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`),
+        FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
+        FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+];
+
 $tableMap = fetch_table_status_map($db);
 foreach ($expectedTables as $tbl) {
+    if (!isset($tableMap[$tbl]) && $applyMissing && isset($tableDdl[$tbl])) {
+        if ($db->query($tableDdl[$tbl])) {
+            $applied[] = "table:{$tbl}";
+            $tableMap = fetch_table_status_map($db);
+        }
+    }
     if (!isset($tableMap[$tbl])) {
         $errors[] = "Tabel wajib tidak ditemukan: {$tbl}";
         continue;
@@ -265,7 +309,7 @@ if ($asJson) {
     echo "Database : {$report['database']} @ {$report['host']}\n";
     echo "Charset  : {$report['charset']} ({$report['collation']})\n";
     echo "Tabel    : {$report['tables_checked']} tabel inti diperiksa\n";
-    echo "Index    : {$verifiedIndexes}/{$totalIndexes} composite & lookup indexes terverifikasi (13 tabel)\n";
+    echo "Index    : {$verifiedIndexes}/{$totalIndexes} composite & lookup indexes terverifikasi (" . count($requiredIndexes) . " tabel)\n";
     if ($applied) {
         echo "Applied  :\n";
         foreach ($applied as $item) {

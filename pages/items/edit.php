@@ -48,6 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             buy_price=?,sell_price=?,description=?,image=?,is_active=? WHERE id=?');
         $st->bind_param('ssiiiddssii', $code,$name,$cat_id,$unit_id,$min_stock,$buy_price,$sell_price,$desc,$image,$active,$id);
         if ($st->execute()) {
+            audit_log('item.update', 'item', req_int('id'), '', 'Memperbarui data barang #' . req_int('id'));
             set_flash('success', 'Barang berhasil diperbarui.');
             redirect(APP_URL . '/pages/items/index.php');
         } else {

@@ -35,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $st = $db->prepare('SELECT reference_no FROM supplier_returns WHERE id=?');
             $st->bind_param('i', $return_id); $st->execute();
             $st->bind_result($ref_no); $st->fetch(); $st->close();
+            audit_log('supplier_return.create', 'supplier_return', (int)$return_id, (string)$ref_no, "Membuat retur supplier {$ref_no} (" . count($valid_items) . ' item)', (int)$company_id);
             set_flash('success', "Retur supplier <strong>{$ref_no}</strong> berhasil disimpan.");
             redirect(APP_URL.'/pages/supplier-returns/index.php');
         } catch (Exception $e) {

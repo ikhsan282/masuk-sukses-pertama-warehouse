@@ -53,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $st2->close();
             $db->commit();
+            audit_log('stock_in.create', 'stock_in', (int)$si_id, $ref_no, "Input barang masuk {$ref_no} (" . count($valid_items) . ' item)', (int)$company_id);
             set_flash('success',"Barang masuk <strong>{$ref_no}</strong> berhasil disimpan.");
             redirect(APP_URL.'/pages/stock-in/index.php');
         } catch (Exception $e) {

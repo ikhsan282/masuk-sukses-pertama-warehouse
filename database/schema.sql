@@ -427,6 +427,32 @@ CREATE TABLE `mutations` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB;
 
+-- Login Brute-Force Rate Limit Attempts
+CREATE TABLE `login_attempts` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `username_key` VARCHAR(120) NOT NULL,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `attempted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- Application Activity Audit Trail
+CREATE TABLE `audit_logs` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NULL,
+  `user_id` INT UNSIGNED NULL,
+  `username` VARCHAR(60) NOT NULL DEFAULT '',
+  `action` VARCHAR(60) NOT NULL,
+  `entity_type` VARCHAR(50) NOT NULL DEFAULT '',
+  `entity_id` INT UNSIGNED NULL,
+  `reference_no` VARCHAR(60) NOT NULL DEFAULT '',
+  `description` VARCHAR(500) NOT NULL DEFAULT '',
+  `ip_address` VARCHAR(45) NOT NULL DEFAULT '',
+  `user_agent` VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 -- ── Performance Indexes ──────────────────────────────────────────────────────
 ALTER TABLE `mutations`
   ADD INDEX `idx_mutations_company_id` (`company_id`),
@@ -494,6 +520,14 @@ ALTER TABLE `suppliers`
 
 ALTER TABLE `locations`
   ADD INDEX `idx_locations_active_code` (`is_active`, `code`);
+
+ALTER TABLE `login_attempts`
+  ADD INDEX `idx_login_attempts_lookup` (`username_key`, `ip_address`, `attempted_at`);
+
+ALTER TABLE `audit_logs`
+  ADD INDEX `idx_audit_comp_created` (`company_id`, `created_at`, `id`),
+  ADD INDEX `idx_audit_action_created` (`action`, `created_at`, `id`),
+  ADD INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`);
 
 
 -- ============================================================================

@@ -3,21 +3,121 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
 
+defined('LOGIN_MAX_ATTEMPTS')    || define('LOGIN_MAX_ATTEMPTS', 5);
+defined('LOGIN_LOCKOUT_SECONDS') || define('LOGIN_LOCKOUT_SECONDS', 300); // 5 minutes cooldown
+
+function login_attempts_ensure_table(?mysqli $db = null): bool {
+    static $ready = false;
+    if ($ready) return true;
+    try {
+        $db = $db ?: getDB();
+        $db->query("CREATE TABLE IF NOT EXISTS `login_attempts` (
+            `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `username_key` VARCHAR(120) NOT NULL,
+            `ip_address` VARCHAR(45) NOT NULL,
+            `attempted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_login_attempts_lookup` (`username_key`, `ip_address`, `attempted_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $ready = true;
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function login_remaining_lockout_seconds(string $username_key, string $ip): int {
+    try {
+        $db = getDB();
+        if (!login_attempts_ensure_table($db)) return 0;
+        $window = (int)LOGIN_LOCKOUT_SECONDS;
+        $st = $db->prepare('SELECT COUNT(*), TIMESTAMPDIFF(SECOND, MAX(attempted_at), NOW()) FROM login_attempts WHERE username_key=? AND ip_address=? AND attempted_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        if (!$st) return 0;
+        $st->bind_param('ssi', $username_key, $ip, $window);
+        $st->execute();
+        $st->bind_result($cnt, $elapsed);
+        $st->fetch();
+        $st->close();
+        if ((int)$cnt < LOGIN_MAX_ATTEMPTS || $elapsed === null) return 0;
+        return max(1, $window - max(0, (int)$elapsed));
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function login_record_failure(string $username_key, string $ip): void {
+    try {
+        $db = getDB();
+        if (!login_attempts_ensure_table($db)) return;
+        $st = $db->prepare('INSERT INTO login_attempts (username_key, ip_address, attempted_at) VALUES (?, ?, NOW())');
+        if ($st) {
+            $st->bind_param('ss', $username_key, $ip);
+            $st->execute();
+            $st->close();
+        }
+        $cutoff = date('Y-m-d H:i:s', time() - 86400);
+        $cl = $db->prepare('DELETE FROM login_attempts WHERE attempted_at < ?');
+        if ($cl) {
+            $cl->bind_param('s', $cutoff);
+            $cl->execute();
+            $cl->close();
+        }
+    } catch (Throwable $e) {}
+}
+
+function login_clear_failures(string $username_key, string $ip): void {
+    try {
+        $db = getDB();
+        if (!login_attempts_ensure_table($db)) return;
+        $st = $db->prepare('DELETE FROM login_attempts WHERE username_key=? AND ip_address=?');
+        if ($st) {
+            $st->bind_param('ss', $username_key, $ip);
+            $st->execute();
+            $st->close();
+        }
+    } catch (Throwable $e) {}
+}
+
 // ── Login ──────────────────────────────────────────────────────────────────
 function auth_login(string $username, string $password): bool {
-    $db = getDB();
-    $st = $db->prepare('SELECT id, password, is_active, email_verified_at FROM users WHERE username=? OR email=? LIMIT 1');
+    $db  = getDB();
+    $key = mb_strtolower(mb_substr(trim($username), 0, 120, 'UTF-8'), 'UTF-8');
+    $ip  = mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
+
+    $waitSec = login_remaining_lockout_seconds($key, $ip);
+    if ($waitSec > 0) {
+        $mins = max(1, (int)ceil($waitSec / 60));
+        set_flash('error', "Terlalu banyak percobaan masuk gagal. Silakan coba lagi dalam {$mins} menit.");
+        if (!headers_sent()) http_response_code(429);
+        audit_log('login_locked', 'user', null, '', "Akun '{$key}' diblokir sementara ({$waitSec} detik) dari IP {$ip}", null, null, $key);
+        return false;
+    }
+
+    $st = $db->prepare('SELECT id, username, password, is_active, email_verified_at FROM users WHERE username=? OR email=? LIMIT 1');
     $st->bind_param('ss', $username, $username);
     $st->execute();
     $row = $st->get_result()->fetch_assoc();
     $st->close();
 
-    if (!$row || !password_verify($password, $row['password'])) return false;
-    if (!$row['is_active']) { set_flash('error', 'Akun Anda dinonaktifkan.'); return false; }
-    if (!$row['email_verified_at']) { set_flash('error', 'Email belum diverifikasi. Cek inbox Anda.'); return false; }
+    if (!$row || !password_verify($password, $row['password'])) {
+        login_record_failure($key, $ip);
+        audit_log('login_failed', 'user', $row['id'] ?? null, '', "Percobaan masuk gagal untuk '{$key}'", null, $row['id'] ?? null, $key);
+        return false;
+    }
+    if (!$row['is_active']) {
+        set_flash('error', 'Akun Anda dinonaktifkan.');
+        audit_log('login_blocked', 'user', (int)$row['id'], '', 'Akun dinonaktifkan mencoba login', null, (int)$row['id'], (string)$row['username']);
+        return false;
+    }
+    if (!$row['email_verified_at']) {
+        set_flash('error', 'Email belum diverifikasi. Hubungi Admin atau cek inbox Anda.');
+        audit_log('login_unverified', 'user', (int)$row['id'], '', 'Akun belum terverifikasi mencoba login', null, (int)$row['id'], (string)$row['username']);
+        return false;
+    }
 
+    login_clear_failures($key, $ip);
     _load_session($row['id']);
     session_regenerate_id(true);
+    audit_log('login_success', 'user', (int)$row['id'], '', 'Login berhasil', current_company_id(), (int)$row['id'], (string)$row['username']);
     return true;
 }
 
@@ -102,6 +202,14 @@ function switch_company(int $company_id): bool {
     return false;
 }
 
+function sync_active_user_session(): void {
+    if (!empty($_SESSION['user']['id'])) {
+        $prevCompId = current_company_id();
+        _load_session((int)$_SESSION['user']['id']);
+        switch_company($prevCompId);
+    }
+}
+
 /**
  * Resolve company filter for Reports & Stock views.
  * Supports 'all' (Consolidated view across all user's assigned PTs) or a specific company_id.
@@ -174,6 +282,9 @@ function auth_guest(): void {
 }
 
 function auth_logout(): void {
+    if (!empty($_SESSION['user']['id'])) {
+        audit_log('logout', 'user', (int)$_SESSION['user']['id'], '', 'Logout dari sistem');
+    }
     $_SESSION = [];
     session_destroy();
 }

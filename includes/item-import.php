@@ -58,21 +58,130 @@ function item_import_read_csv(string $path): array {
     return $rows;
 }
 
-function item_import_read_xlsx(string $path): array {
-    if (!class_exists('ZipArchive')) {
-        throw new RuntimeException('Import XLSX membutuhkan ekstensi PHP ZipArchive. Gunakan CSV atau aktifkan ZipArchive di cPanel.');
+/**
+ * Pure-PHP ZIP reader for OOXML (.xlsx), with ZipArchive fast path when available.
+ * Enforces an entry size cap (16 MB) to mitigate zip-bomb attacks.
+ */
+function item_import_zip_read_entries(string $path, array $targets): array {
+    $wanted = array_flip($targets);
+    $found  = [];
+
+    if (class_exists('ZipArchive')) {
+        $zip = new ZipArchive();
+        if ($zip->open($path) !== true) {
+            throw new RuntimeException('File XLSX tidak valid atau rusak.');
+        }
+        foreach ($targets as $name) {
+            $stat = $zip->statName($name);
+            if ($stat && isset($stat['size']) && (int)$stat['size'] > 16 * 1024 * 1024) {
+                $zip->close();
+                throw new RuntimeException("Ukuran entry XLSX '{$name}' melebihi batas 16 MB.");
+            }
+            $data = $zip->getFromName($name);
+            if ($data !== false) {
+                $found[$name] = $data;
+            }
+        }
+        $zip->close();
+        return $found;
     }
+
+    $raw = @file_get_contents($path);
+    if ($raw === false || strlen($raw) < 22) {
+        throw new RuntimeException('File XLSX tidak dapat dibaca atau rusak.');
+    }
+
+    $len = strlen($raw);
+    $searchStart = max(0, $len - 65557);
+    $eocdPos = strrpos(substr($raw, $searchStart), "\x50\x4b\x05\x06");
+    if ($eocdPos === false) {
+        throw new RuntimeException('File XLSX bukan arsip ZIP yang valid.');
+    }
+    $eocdOffset = $searchStart + $eocdPos;
+    $eocd = unpack('Vsig/vdisk/vcdDisk/vdiskEntries/vtotalEntries/VcdSize/VcdOffset/vcommentLen', substr($raw, $eocdOffset, 22));
+    if (!$eocd || $eocd['sig'] !== 0x06054b50) {
+        throw new RuntimeException('Header Central Directory XLSX tidak valid.');
+    }
+
+    $cdPos = (int)$eocd['cdOffset'];
+    $cdEnd = min($len, $cdPos + (int)$eocd['cdSize']);
+    $maxEntryBytes = 16 * 1024 * 1024;
+
+    while ($cdPos + 46 <= $cdEnd) {
+        $hdr = unpack(
+            'Vsig/vverMade/vverNeed/vflag/vmethod/vmtime/vmdate/Vcrc/VcSize/VuSize/vnameLen/vextraLen/vcommentLen/vdiskStart/vintAttr/VextAttr/VlocalOffset',
+            substr($raw, $cdPos, 46)
+        );
+        if (!$hdr || $hdr['sig'] !== 0x02014b50) {
+            break;
+        }
+        $namePos = $cdPos + 46;
+        $entryName = substr($raw, $namePos, (int)$hdr['nameLen']);
+        $cdPos += 46 + (int)$hdr['nameLen'] + (int)$hdr['extraLen'] + (int)$hdr['commentLen'];
+
+        if (!isset($wanted[$entryName])) {
+            continue;
+        }
+        if ((int)$hdr['uSize'] > $maxEntryBytes) {
+            throw new RuntimeException("Ukuran entry XLSX '{$entryName}' melebihi batas 16 MB.");
+        }
+
+        $locOffset = (int)$hdr['localOffset'];
+        if ($locOffset + 30 > $len) {
+            throw new RuntimeException('Offset data XLSX korup.');
+        }
+        $loc = unpack('Vsig/vver/vflag/vmethod/vmtime/vmdate/Vcrc/VcSize/VuSize/vnameLen/vextraLen', substr($raw, $locOffset, 30));
+        if (!$loc || $loc['sig'] !== 0x04034b50) {
+            throw new RuntimeException('Local file header XLSX tidak valid.');
+        }
+
+        $compSize = (int)$hdr['cSize'];
+        $dataStart = $locOffset + 30 + (int)$loc['nameLen'] + (int)$loc['extraLen'];
+        if ($compSize === 0 && (int)$loc['cSize'] > 0) {
+            $compSize = (int)$loc['cSize'];
+        }
+        if ($dataStart + $compSize > $len) {
+            throw new RuntimeException('Data terkompresi XLSX terpotong.');
+        }
+        $payload = substr($raw, $dataStart, $compSize);
+
+        $method = (int)$hdr['method'];
+        if ($method === 0) {
+            $uncompressed = $payload;
+        } elseif ($method === 8) {
+            if (!function_exists('gzinflate')) {
+                throw new RuntimeException('Ekstensi PHP zlib diperlukan untuk membaca file XLSX.');
+            }
+            $uncompressed = @gzinflate($payload, $maxEntryBytes);
+            if ($uncompressed === false) {
+                throw new RuntimeException("Gagal mendekompression '{$entryName}' di file XLSX.");
+            }
+        } else {
+            throw new RuntimeException("Metode kompresi ZIP ({$method}) tidak didukung.");
+        }
+
+        if (strlen($uncompressed) > $maxEntryBytes) {
+            throw new RuntimeException("Ukuran entry XLSX '{$entryName}' melebihi batas 16 MB.");
+        }
+        $found[$entryName] = $uncompressed;
+        if (count($found) === count($wanted)) {
+            break;
+        }
+    }
+
+    return $found;
+}
+
+function item_import_read_xlsx(string $path): array {
     if (!function_exists('simplexml_load_string')) {
         throw new RuntimeException('Import XLSX membutuhkan ekstensi PHP SimpleXML. Gunakan CSV atau aktifkan SimpleXML di cPanel.');
     }
 
-    $zip = new ZipArchive();
-    if ($zip->open($path) !== true) throw new RuntimeException('File XLSX tidak valid atau rusak.');
+    $entries = item_import_zip_read_entries($path, ['xl/sharedStrings.xml', 'xl/worksheets/sheet1.xml']);
     $main_ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
     $shared = [];
-    $shared_xml = $zip->getFromName('xl/sharedStrings.xml');
-    if ($shared_xml !== false) {
-        $xml = item_import_open_xml($shared_xml, 'Shared strings XLSX tidak valid.');
+    if (isset($entries['xl/sharedStrings.xml'])) {
+        $xml = item_import_open_xml($entries['xl/sharedStrings.xml'], 'Shared strings XLSX tidak valid.');
         $root = $xml->children($main_ns);
         foreach ($root->si as $si) {
             $parts = [];
@@ -82,11 +191,11 @@ function item_import_read_xlsx(string $path): array {
         }
     }
 
-    $sheet_xml = $zip->getFromName('xl/worksheets/sheet1.xml');
-    $zip->close();
-    if ($sheet_xml === false) throw new RuntimeException('Sheet pertama XLSX tidak ditemukan.');
+    if (!isset($entries['xl/worksheets/sheet1.xml'])) {
+        throw new RuntimeException('Sheet pertama XLSX tidak ditemukan.');
+    }
 
-    $xml = item_import_open_xml($sheet_xml, 'Data sheet XLSX tidak valid.');
+    $xml = item_import_open_xml($entries['xl/worksheets/sheet1.xml'], 'Data sheet XLSX tidak valid.');
     $root = $xml->children($main_ns);
     $rows = [];
     foreach ($root->sheetData->row as $row_node) {

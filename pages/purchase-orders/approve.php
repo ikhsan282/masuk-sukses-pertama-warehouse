@@ -44,6 +44,14 @@ try {
     $upd->close();
 
     $db->commit();
+
+    audit_log(
+        $action === 'approve' ? 'po.approve' : 'po.reject',
+        'purchase_order',
+        (int)$id,
+        (string)($po['reference_no'] ?? ''),
+        $action === 'approve' ? "Approve PO {$po['reference_no']}" : "Reject PO {$po['reference_no']}"
+    );
     
     $msg = $action === 'approve' 
         ? "PO {$po['reference_no']} telah diapprove."

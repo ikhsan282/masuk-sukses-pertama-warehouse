@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $role_id     = req_int('role_id');
         $password    = req_str('password');
         $company_ids = $_POST['company_ids'] ?? [];
+        $auto_verify = !empty($_POST['auto_verify']);
         if (!$name||!$username||!$email||!$role_id||!$password) {
             set_flash('error','Semua field wajib diisi.');
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -25,10 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (strlen($password) < 8) {
             set_flash('error','Kata sandi minimal 8 karakter.');
         } else {
-            $token = bin2hex(random_bytes(32));
-            $hash  = password_hash($password, PASSWORD_BCRYPT, ['cost'=>12]);
-            $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token) VALUES (?,?,?,?,?,?)');
-            $st->bind_param('isssss',$role_id,$name,$username,$email,$hash,$token);
+            if ($auto_verify) {
+                $token = null;
+                $hash  = password_hash($password, PASSWORD_BCRYPT, ['cost'=>12]);
+                $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token,email_verified_at) VALUES (?,?,?,?,?,NULL,NOW())');
+                $st->bind_param('issss',$role_id,$name,$username,$email,$hash);
+            } else {
+                $token = bin2hex(random_bytes(32));
+                $hash  = password_hash($password, PASSWORD_BCRYPT, ['cost'=>12]);
+                $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token) VALUES (?,?,?,?,?,?)');
+                $st->bind_param('isssss',$role_id,$name,$username,$email,$hash,$token);
+            }
             if ($st->execute()) {
                 $new_uid = $db->insert_id;
                 // Save company access
@@ -44,13 +52,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $uc_st->close();
 
-                send_verification_email($email, $name, $token);
-                set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan. Email verifikasi dikirim.");
+                if ($auto_verify) {
+                    audit_log('user.create', 'users', $new_uid, $username, "Menambah pengguna '{$username}' (langsung aktif/terverifikasi)");
+                    set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan dan langsung aktif.");
+                } else {
+                    $sent = send_verification_email($email, $name, $token);
+                    audit_log('user.create', 'users', $new_uid, $username, "Menambah pengguna '{$username}' (menunggu verifikasi email)");
+                    set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan." . ($sent ? ' Email verifikasi dikirim.' : ' Email belum terkirim; gunakan tombol Verifikasi di daftar pengguna jika perlu.'));
+                }
             } else {
                 set_flash('error','Username atau email sudah digunakan.');
             }
             $st->close();
         }
+    }
+
+    if ($action === 'verify_user' && can('users.edit')) {
+        $id = req_int('id');
+        $st = $db->prepare('UPDATE users SET email_verified_at=COALESCE(email_verified_at, NOW()), verification_token=NULL WHERE id=?');
+        $st->bind_param('i', $id);
+        if ($st->execute() && $st->affected_rows >= 0) {
+            audit_log('user.verify', 'users', $id, '', "Verifikasi manual akun user #{$id}");
+            set_flash('success', 'Akun pengguna berhasil diverifikasi dan siap digunakan untuk login.');
+        } else {
+            set_flash('error', 'Gagal memverifikasi pengguna.');
+        }
+        $st->close();
     }
 
     if ($action === 'edit' && can('users.edit')) {
@@ -65,7 +92,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($st->execute()) {
             // Update companies
             if (!empty($company_ids)) {
-                $db->query("DELETE FROM user_companies WHERE user_id = $id");
+                $delUc = $db->prepare('DELETE FROM user_companies WHERE user_id = ?');
+                $delUc->bind_param('i', $id);
+                $delUc->execute();
+                $delUc->close();
                 $uc_st = $db->prepare('INSERT IGNORE INTO user_companies (user_id, company_id, is_default) VALUES (?, ?, ?)');
                 foreach ($company_ids as $idx => $cid) {
                     $cid = (int)$cid;
@@ -77,6 +107,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $uc_st->close();
             }
+            if ($id === (int)current_user()['id']) {
+                sync_active_user_session();
+            }
+            audit_log('user.update', 'users', $id, '', "Memperbarui user #{$id} ({$name}), aktif={$active}");
             set_flash('success','Pengguna diperbarui.');
         } else {
             set_flash('error','Gagal memperbarui pengguna.');
@@ -93,8 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hash = password_hash($pwd, PASSWORD_BCRYPT, ['cost'=>12]);
             $st   = $db->prepare('UPDATE users SET password=? WHERE id=?');
             $st->bind_param('si',$hash,$id);
-            if ($st->execute()) set_flash('success','Kata sandi berhasil direset.');
-            else set_flash('error','Gagal.');
+            if ($st->execute()) {
+                audit_log('user.reset_password', 'users', $id, '', "Reset kata sandi user #{$id} oleh Admin");
+                set_flash('success','Kata sandi berhasil direset.');
+            } else {
+                set_flash('error','Gagal.');
+            }
             $st->close();
         }
     }
@@ -106,8 +144,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $st = $db->prepare('DELETE FROM users WHERE id=?');
             $st->bind_param('i',$id);
-            if ($st->execute()) set_flash('success','Pengguna dihapus.');
-            else set_flash('error','Gagal menghapus pengguna.');
+            if ($st->execute()) {
+                audit_log('user.delete', 'users', $id, '', "Menghapus pengguna #{$id}");
+                set_flash('success','Pengguna dihapus.');
+            } else {
+                set_flash('error','Gagal menghapus pengguna.');
+            }
             $st->close();
         }
     }
@@ -195,6 +237,14 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
           <td class="text-center"><?=$r['is_active']?'<span class="badge badge-ok">Aktif</span>':'<span class="badge badge-zero">Nonaktif</span>'?></td>
           <td class="text-center"><?=$r['email_verified_at']?'<span class="badge badge-ok"><i class="bi bi-check"></i></span>':'<span class="badge badge-zero">Belum</span>'?></td>
           <td class="text-center">
+            <?php if(can('users.edit') && empty($r['email_verified_at'])):?>
+            <form method="POST" class="d-inline">
+              <?=csrf_field()?><input type="hidden" name="action" value="verify_user">
+              <input type="hidden" name="id" value="<?=$r['id']?>">
+              <button class="btn btn-action btn-outline-success" title="Verifikasi / Aktifkan Akun Sekarang" data-confirm="Verifikasi akun '<?=htmlspecialchars($r['username'])?>' agar langsung bisa login?">
+                <i class="bi bi-patch-check"></i></button>
+            </form>
+            <?php endif;?>
             <?php if(can('users.edit')):?>
             <a href="?edit=<?=$r['id']?>" class="btn btn-action btn-outline-primary" title="Edit"><i class="bi bi-pencil"></i></a>
             <?php endif;?>
@@ -243,7 +293,7 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
               <input type="password" name="password" class="form-control" required minlength="8"></div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Akses Perusahaan (PT)</label>
-              <div class="border rounded p-2 bg-light">
+              <div class="border rounded p-2 bg-body-tertiary">
                 <?php foreach ($all_companies as $c): ?>
                 <div class="form-check form-check-inline me-3">
                   <input class="form-check-input" type="checkbox" name="company_ids[]" value="<?=$c['id']?>" id="comp_<?=$c['id']?>" <?=$c['is_holding']?'checked':''?>>
@@ -254,6 +304,14 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
                 <?php endforeach; ?>
               </div>
               <small class="text-muted">Pilih satu atau beberapa PT yang dapat diakses oleh pengguna ini.</small>
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="auto_verify" value="1" id="autoVerifyCheck" checked>
+                <label class="form-check-label small" for="autoVerifyCheck">
+                  Langsung verifikasi &amp; aktifkan akun (disarankan bila server belum dikonfigurasi email SMTP)
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -298,7 +356,7 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">Akses Perusahaan (PT)</label>
-              <div class="border rounded p-2 bg-light">
+              <div class="border rounded p-2 bg-body-tertiary">
                 <?php foreach ($all_companies as $c): ?>
                 <div class="form-check form-check-inline me-3">
                   <input class="form-check-input" type="checkbox" name="company_ids[]" value="<?=$c['id']?>" id="edit_comp_<?=$c['id']?>" <?=in_array((int)$c['id'], $edit_user_companies, true)?'checked':''?>>
@@ -310,24 +368,21 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
               </div>
             </div>
           </div>
-          <hr>
-          <p class="small fw-semibold mb-2">Reset Kata Sandi (opsional)</p>
-          <div class="row g-3">
-            <div class="col-12">
-              <form method="POST" class="d-flex gap-2">
-                <?=csrf_field()?><input type="hidden" name="action" value="reset_password">
-                <input type="hidden" name="id" value="<?=$edit_row['id']?>">
-                <input type="password" name="new_password" class="form-control" placeholder="Kata sandi baru (min. 8 karakter)" minlength="8">
-                <button type="submit" class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-key me-1"></i>Reset</button>
-              </form>
-            </div>
-          </div>
         </div>
         <div class="modal-footer">
           <a href="?" class="btn btn-secondary btn-sm">Batal</a>
           <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i>Perbarui</button>
         </div>
       </form>
+      <div class="modal-body border-top pt-3">
+        <p class="small fw-semibold mb-2">Reset Kata Sandi (opsional)</p>
+        <form method="POST" class="d-flex gap-2">
+          <?=csrf_field()?><input type="hidden" name="action" value="reset_password">
+          <input type="hidden" name="id" value="<?=$edit_row['id']?>">
+          <input type="password" name="new_password" class="form-control" placeholder="Kata sandi baru (min. 8 karakter)" minlength="8" required>
+          <button type="submit" class="btn btn-warning btn-sm text-nowrap"><i class="bi bi-key me-1"></i>Reset</button>
+        </form>
+      </div>
     </div>
   </div>
 </div>

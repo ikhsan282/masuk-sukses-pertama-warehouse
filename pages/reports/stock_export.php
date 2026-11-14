@@ -27,9 +27,64 @@ if ($loc_filter) {
 if ($show === 'low')  $where_parts[] = "$stock_sub > 0 AND $stock_sub <= i.min_stock";
 if ($show === 'zero') $where_parts[] = "$stock_sub = 0";
 $where = 'WHERE ' . implode(' AND ', $where_parts);
+$format = strtolower(req_str('format', 'csv'));
+
+if ($format === 'pdf' || $format === 'excel') {
+    require_once __DIR__ . '/../../includes/export.php';
+    $max_rows = $format === 'pdf' ? EXPORT_MASTER_PDF_MAX_ROWS : EXPORT_MASTER_XLSX_MAX_ROWS;
+    $limit_q  = $max_rows + 1;
+    $p_params = $params;
+    $p_params[] = $limit_q;
+    $st = $db->prepare("SELECT i.code, i.name, c.name AS cat_name, u.abbreviation, i.min_stock, i.buy_price, $stock_sub AS total_stock
+        FROM items i JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id $where ORDER BY i.id ASC LIMIT ?");
+    $st->bind_param($types . 'i', ...$p_params);
+    $st->execute();
+    $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $st->close();
+    $truncated = count($raw) > $max_rows;
+    if ($truncated) array_pop($raw);
+
+    $rows = [];
+    foreach ($raw as $idx => $r) {
+        $ts = (int)$r['total_stock'];
+        $sl = $ts === 0 ? 'Habis' : ($ts <= (int)$r['min_stock'] ? 'Menipis' : 'Aman');
+        $bp = (float)$r['buy_price'];
+        $rows[] = [
+            $idx + 1,
+            $r['code'],
+            $r['name'],
+            $r['cat_name'],
+            $r['abbreviation'],
+            $ts,
+            (int)$r['min_stock'],
+            $sl,
+            $bp,
+            $ts * $bp,
+        ];
+    }
+    $columns = [
+        ['label' => '#',           'type' => 'int',      'align' => 'C', 'pdf_width' => 24,  'xlsx_width' => 6],
+        ['label' => 'Kode',        'type' => 'text',     'align' => 'C', 'pdf_width' => 70,  'xlsx_width' => 14],
+        ['label' => 'Nama Barang', 'type' => 'text',     'align' => 'L', 'pdf_width' => 185, 'xlsx_width' => 32],
+        ['label' => 'Kategori',    'type' => 'text',     'align' => 'L', 'pdf_width' => 110, 'xlsx_width' => 22],
+        ['label' => 'Satuan',      'type' => 'text',     'align' => 'C', 'pdf_width' => 42,  'xlsx_width' => 8],
+        ['label' => 'Stok',        'type' => 'int',      'align' => 'R', 'pdf_width' => 52,  'xlsx_width' => 10],
+        ['label' => 'Min',         'type' => 'int',      'align' => 'R', 'pdf_width' => 44,  'xlsx_width' => 10],
+        ['label' => 'Status',      'type' => 'text',     'align' => 'C', 'pdf_width' => 54,  'xlsx_width' => 10],
+        ['label' => 'Harga Beli',  'type' => 'currency', 'align' => 'R', 'pdf_width' => 92,  'xlsx_width' => 16],
+        ['label' => 'Nilai Stok',  'type' => 'currency', 'align' => 'R', 'pdf_width' => 108, 'xlsx_width' => 18],
+    ];
+    $subtitle = 'Cakupan: ' . $cf['label'] . ' | Total: ' . count($rows) . ' item' . ($truncated ? " (maks. {$max_rows})" : '');
+    audit_log('export.' . $format, 'report_stock', null, '', "Export laporan stok format " . strtoupper($format) . " (" . count($rows) . " item)");
+    if ($format === 'pdf') {
+        export_pdf_send('laporan_stok_' . date('Ymd') . '.pdf', 'Laporan Stok Barang', $subtitle, $columns, $rows, 'L');
+    }
+    export_xlsx_send('laporan_stok_' . date('Ymd') . '.xlsx', 'Laporan Stok Barang', $subtitle, $columns, $rows, 'Laporan Stok');
+}
 
 // Print-friendly HTML export (capped at EXPORT_PRINT_MAX_ROWS)
-if (req_str('format')==='print') {
+if ($format==='print') {
+    audit_log('export.print', 'report_stock', null, '', 'Cetak tampilan laporan stok');
     $title='Laporan Stok Barang - '.date('d/m/Y');
     $subtitle='Cakupan: '.$cf['label'];
     $print_limit = EXPORT_PRINT_MAX_ROWS + 1;
@@ -62,6 +117,7 @@ if (req_str('format')==='print') {
 }
 
 // Chunked keyset CSV export (capped at EXPORT_CSV_MAX_ROWS, formula-safe)
+audit_log('export.csv', 'report_stock', null, '', 'Export CSV laporan stok');
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="stok_'.date('Ymd').'.csv"');
 echo "\xEF\xBB\xBF";

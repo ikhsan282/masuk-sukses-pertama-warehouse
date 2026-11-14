@@ -71,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $st2->close();
             $db->commit();
+            audit_log('transfer.create', 'transfer', (int)$tr_id, $ref_no, "Transfer lokasi {$ref_no} (" . count($valid_items) . ' item)', (int)$from_company_id);
             set_flash('success',"Transfer <strong>{$ref_no}</strong> berhasil disimpan.");
             redirect(APP_URL.'/pages/transfers/index.php');
         } catch (Exception $e) {

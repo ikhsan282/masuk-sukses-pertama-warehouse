@@ -1,5 +1,6 @@
 <?php
-// Database configuration — change these for cPanel deployment
+require_once __DIR__ . '/env.php';
+// Database configuration — change these for cPanel deployment (or override via .env / config.local.php)
 defined('DB_HOST') || define('DB_HOST', 'localhost');
 defined('DB_USER') || define('DB_USER', 'root');
 defined('DB_PASS') || define('DB_PASS', '');

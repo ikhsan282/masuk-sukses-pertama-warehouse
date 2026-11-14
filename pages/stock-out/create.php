@@ -56,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $st2->close();
             $db->commit();
+            audit_log('stock_out.create', 'stock_out', (int)$so_id, $ref_no, "Input barang keluar {$ref_no} (" . count($valid_items) . ' item)', (int)$company_id);
             set_flash('success',"Barang keluar <strong>{$ref_no}</strong> berhasil disimpan.");
             redirect(APP_URL.'/pages/stock-out/index.php');
         } catch (Exception $e) {

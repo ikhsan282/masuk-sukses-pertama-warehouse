@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         $cid = current_company_id();
         $new_id = create_stock_opname($db, $date, current_user()['id'], $notes, $cid);
+        audit_log('stock_opname.create', 'stock_opname', (int)$new_id, 'OPNAME-' . $new_id, 'Membuat sesi draft stock opname #' . $new_id . ' tgl ' . $date, (int)$cid);
         set_flash('success', 'Sesi stock opname dibuat. Lanjutkan penginputan hasil hitung.');
         redirect(APP_URL . '/pages/stock-opname/count.php?id=' . $new_id);
     }

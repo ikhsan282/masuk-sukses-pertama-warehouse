@@ -59,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && req_str('action') === 'approve') {
         }
 
         $db->commit();
+        audit_log('adjustment.approve', 'stock_adjustment', (int)($adj['id'] ?? req_int('id')), (string)$adj['reference_no'], "Approve penyesuaian stok {$adj['reference_no']}", isset($adj['company_id']) ? (int)$adj['company_id'] : null);
         set_flash('success', "Penyesuaian <strong>{$adj['reference_no']}</strong> berhasil di-approve. Stok sistem telah diperbarui.");
     } catch (Exception $e) {
         $db->rollback();

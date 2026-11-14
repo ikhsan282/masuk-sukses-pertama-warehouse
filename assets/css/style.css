@@ -36,6 +36,19 @@ html[data-bs-theme=dark] .bg-white { background: var(--card-bg) !important; }
 html[data-bs-theme=dark] .card-header,
 html[data-bs-theme=dark] .card-footer,
 html[data-bs-theme=dark] .dropdown-menu { background: var(--surface-muted) !important; color: var(--text-primary); border-color: var(--border-color) !important; }
+html[data-bs-theme=dark] .btn-light {
+  --bs-btn-bg: var(--surface-muted);
+  --bs-btn-color: var(--text-primary);
+  --bs-btn-border-color: var(--border-color);
+  --bs-btn-hover-bg: #273244;
+  --bs-btn-hover-color: var(--text-primary);
+  --bs-btn-hover-border-color: var(--border-color);
+  --bs-btn-active-bg: #273244;
+  --bs-btn-active-color: var(--text-primary);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
 html[data-bs-theme=dark] .table thead th { background: var(--surface-muted); color: var(--text-primary); }
 html[data-bs-theme=dark] .table-light {
   --bs-table-bg: var(--surface-muted);

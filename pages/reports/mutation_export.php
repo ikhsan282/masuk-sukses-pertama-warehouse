@@ -27,9 +27,67 @@ if ($type_filter) { $where_parts[] = 'm.type=?';    $params[] = $type_filter; $t
 $where = 'WHERE ' . implode(' AND ', $where_parts);
 
 $type_map = ['in'=>'Masuk','out'=>'Keluar','transfer_in'=>'Transfer In','transfer_out'=>'Transfer Out','adjustment'=>'Penyesuaian'];
+$format = strtolower(req_str('format', 'csv'));
+
+if ($format === 'pdf' || $format === 'excel') {
+    require_once __DIR__ . '/../../includes/export.php';
+    $max_rows = $format === 'pdf' ? EXPORT_MASTER_PDF_MAX_ROWS : EXPORT_MASTER_XLSX_MAX_ROWS;
+    $limit_q  = $max_rows + 1;
+    $p_params = $params;
+    $p_params[] = $limit_q;
+    $st = $db->prepare("SELECT m.created_at, comp.code AS comp_code, i.code AS item_code, i.name AS item_name, m.type,
+        l.name AS loc_name, m.quantity, u.abbreviation, m.reference_no, COALESCE(us.name, '-') AS user_name
+        FROM mutations m JOIN items i ON i.id=m.item_id JOIN units u ON u.id=i.unit_id
+        JOIN locations l ON l.id=m.location_id LEFT JOIN users us ON us.id=m.user_id
+        LEFT JOIN companies comp ON comp.id=m.company_id
+        $where ORDER BY m.id DESC LIMIT ?");
+    $st->bind_param($types . 'i', ...$p_params);
+    $st->execute();
+    $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $st->close();
+    $truncated = count($raw) > $max_rows;
+    if ($truncated) array_pop($raw);
+
+    $rows = [];
+    foreach ($raw as $idx => $r) {
+        $rows[] = [
+            $idx + 1,
+            date('d/m/Y H:i', strtotime($r['created_at'])),
+            $r['comp_code'] ?? 'MSP',
+            $r['item_code'],
+            $r['item_name'],
+            $type_map[$r['type']] ?? $r['type'],
+            $r['loc_name'],
+            (int)$r['quantity'],
+            $r['abbreviation'],
+            $r['reference_no'],
+            $r['user_name'],
+        ];
+    }
+    $columns = [
+        ['label' => '#',           'type' => 'int',  'align' => 'C', 'pdf_width' => 24,  'xlsx_width' => 6],
+        ['label' => 'Waktu',       'type' => 'text', 'align' => 'C', 'pdf_width' => 80,  'xlsx_width' => 18],
+        ['label' => 'PT',          'type' => 'text', 'align' => 'C', 'pdf_width' => 40,  'xlsx_width' => 8],
+        ['label' => 'Kode',        'type' => 'text', 'align' => 'C', 'pdf_width' => 68,  'xlsx_width' => 14],
+        ['label' => 'Nama Barang', 'type' => 'text', 'align' => 'L', 'pdf_width' => 165, 'xlsx_width' => 28],
+        ['label' => 'Tipe',        'type' => 'text', 'align' => 'C', 'pdf_width' => 72,  'xlsx_width' => 14],
+        ['label' => 'Lokasi',      'type' => 'text', 'align' => 'L', 'pdf_width' => 108, 'xlsx_width' => 20],
+        ['label' => 'Qty',         'type' => 'int',  'align' => 'R', 'pdf_width' => 46,  'xlsx_width' => 10],
+        ['label' => 'Satuan',      'type' => 'text', 'align' => 'C', 'pdf_width' => 42,  'xlsx_width' => 8],
+        ['label' => 'Referensi',   'type' => 'text', 'align' => 'L', 'pdf_width' => 78,  'xlsx_width' => 16],
+        ['label' => 'Oleh',        'type' => 'text', 'align' => 'L', 'pdf_width' => 62,  'xlsx_width' => 15],
+    ];
+    $subtitle = 'Cakupan: ' . $cf['label'] . ' | Periode: ' . tgl($date_from) . ' - ' . tgl($date_to) . ' | Total: ' . count($rows) . ' baris' . ($truncated ? " (maks. {$max_rows})" : '');
+    audit_log('export.' . $format, 'report_mutation', null, '', "Export laporan mutasi format " . strtoupper($format) . " (" . count($rows) . " baris)");
+    if ($format === 'pdf') {
+        export_pdf_send('laporan_mutasi_' . date('Ymd') . '.pdf', 'Laporan Mutasi Barang', $subtitle, $columns, $rows, 'L');
+    }
+    export_xlsx_send('laporan_mutasi_' . date('Ymd') . '.xlsx', 'Laporan Mutasi Barang', $subtitle, $columns, $rows, 'Mutasi Barang');
+}
 
 // Print-friendly HTML export (capped at EXPORT_PRINT_MAX_ROWS to prevent browser OOM)
-if (req_str('format')==='print') {
+if ($format==='print') {
+    audit_log('export.print', 'report_mutation', null, '', 'Cetak tampilan laporan mutasi');
     $title='Laporan Mutasi Barang'; $subtitle='Cakupan: '.$cf['label'].' | Periode: '.tgl($date_from).' - '.tgl($date_to);
     $print_limit = EXPORT_PRINT_MAX_ROWS + 1;
     $p_params = $params; $p_params[] = $print_limit;
@@ -60,6 +118,7 @@ if (req_str('format')==='print') {
 }
 
 // Chunked keyset CSV export (capped at EXPORT_CSV_MAX_ROWS, formula-safe)
+audit_log('export.csv', 'report_mutation', null, '', 'Export CSV laporan mutasi');
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="mutasi_'.date('Ymd').'.csv"');
 echo "\xEF\xBB\xBF";

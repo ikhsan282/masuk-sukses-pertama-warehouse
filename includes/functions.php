@@ -326,14 +326,36 @@ function grid_filter_actions_html(int $per_page, bool $show_reset = false, strin
     return $html;
 }
 
-// Standardized Export dropdown (PDF & Excel) for Data Master headers
-function master_export_dropdown_html(array $query_params = [], string $endpoint = 'export.php'): string {
+// Compact currency formatter for tight KPI cards (keeps full figure via title attribute)
+function compact_idr(float $amount): string {
+    $abs = abs($amount);
+    $prefix = $amount < 0 ? '-Rp ' : 'Rp ';
+    if ($abs >= 1e12) {
+        return $prefix . number_format($abs / 1e12, 2, ',', '.') . ' T';
+    }
+    if ($abs >= 1e9) {
+        return $prefix . number_format($abs / 1e9, 2, ',', '.') . ' M';
+    }
+    if ($abs >= 1e6) {
+        return $prefix . number_format($abs / 1e6, 1, ',', '.') . ' Jt';
+    }
+    return idr($amount);
+}
+
+// Clean non-empty query parameters for export links
+function _export_clean_query(array $query_params): array {
     $clean = [];
     foreach ($query_params as $k => $v) {
         if ($v !== '' && $v !== null && $v !== 0 && $v !== '0') {
             $clean[$k] = $v;
         }
     }
+    return $clean;
+}
+
+// Standardized Export dropdown (PDF & Excel) for Data Master headers
+function master_export_dropdown_html(array $query_params = [], string $endpoint = 'export.php'): string {
+    $clean     = _export_clean_query($query_params);
     $pdf_url   = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'pdf']), ENT_QUOTES, 'UTF-8');
     $excel_url = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'excel']), ENT_QUOTES, 'UTF-8');
     return '<div class="btn-group">'
@@ -345,6 +367,32 @@ function master_export_dropdown_html(array $query_params = [], string $endpoint 
          . '<li><a class="dropdown-item" href="' . $excel_url . '"><i class="bi bi-file-earmark-excel text-success me-2"></i>Export Excel</a></li>'
          . '</ul>'
          . '</div>';
+}
+
+// Standardized Export dropdown (PDF, Excel, CSV, Print) for Report & Audit pages
+function report_export_dropdown_html(array $query_params, string $endpoint, bool $include_csv = true, bool $include_print = true): string {
+    $clean     = _export_clean_query($query_params);
+    $pdf_url   = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'pdf']), ENT_QUOTES, 'UTF-8');
+    $excel_url = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'excel']), ENT_QUOTES, 'UTF-8');
+    $html = '<div class="btn-group">'
+          . '<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" aria-expanded="false">'
+          . '<i class="bi bi-download me-1"></i>Export'
+          . '</button>'
+          . '<ul class="dropdown-menu dropdown-menu-end shadow-sm">'
+          . '<li><a class="dropdown-item" href="' . $pdf_url . '" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf text-danger me-2"></i>Export PDF</a></li>'
+          . '<li><a class="dropdown-item" href="' . $excel_url . '"><i class="bi bi-file-earmark-excel text-success me-2"></i>Export Excel</a></li>';
+    if ($include_csv) {
+        $csv_url = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'csv']), ENT_QUOTES, 'UTF-8');
+        $html .= '<li><a class="dropdown-item" href="' . $csv_url . '"><i class="bi bi-filetype-csv text-primary me-2"></i>Export CSV</a></li>';
+    }
+    if ($include_print) {
+        $print_url = htmlspecialchars($endpoint . '?' . http_build_query($clean + ['format' => 'print']), ENT_QUOTES, 'UTF-8');
+        $html .= '<li><hr class="dropdown-divider"></li>'
+               . '<li><a class="dropdown-item" href="' . $print_url . '" target="_blank" rel="noopener"><i class="bi bi-printer text-secondary me-2"></i>Tampilan Cetak</a></li>'
+               . '<li><button type="button" class="dropdown-item" onclick="window.print()"><i class="bi bi-file-text text-secondary me-2"></i>Cetak Halaman</button></li>';
+    }
+    $html .= '</ul></div>';
+    return $html;
 }
 
 // Guard CSV export cells against Excel/Calc formula injection (CWE-1236)
@@ -403,9 +451,101 @@ function generate_ref(string $prefix, ?int $company_id = null): string {
     return $clean_prefix . '-' . $code . '-' . date('Ymd') . strtoupper(substr(uniqid(), -5));
 }
 
-// Send email (shared hosting compatible)
+// Zero-dependency SMTP socket helper (supports STARTTLS, SMTPS SSL, & AUTH LOGIN)
+if (!function_exists('_smtp_read_response')) {
+    function _smtp_read_response($fp): string {
+        $resp = '';
+        while (!feof($fp)) {
+            $line = fgets($fp, 515);
+            if ($line === false) break;
+            $resp .= $line;
+            if (strlen($line) < 4 || $line[3] === ' ') break;
+        }
+        return $resp;
+    }
+
+    function _smtp_expect($fp, string $cmd, array $expectedCodes): bool {
+        if ($cmd !== '') {
+            fwrite($fp, $cmd . "\r\n");
+        }
+        $resp = _smtp_read_response($fp);
+        $code = (int)substr($resp, 0, 3);
+        return in_array($code, $expectedCodes, true);
+    }
+
+    function send_mail_smtp(string $to, string $subject, string $body): bool {
+        $host   = defined('SMTP_HOST') ? (string)SMTP_HOST : '';
+        $port   = defined('SMTP_PORT') ? (int)SMTP_PORT : 587;
+        $user   = defined('SMTP_USER') ? (string)SMTP_USER : '';
+        $pass   = defined('SMTP_PASS') ? (string)SMTP_PASS : '';
+        $secure = defined('SMTP_SECURE') ? strtolower((string)SMTP_SECURE) : 'tls';
+        $timeout = defined('SMTP_TIMEOUT') ? max(2, (int)SMTP_TIMEOUT) : 10;
+        if ($host === '') return false;
+
+        $remote = ($secure === 'ssl' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+        $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
+        $fp = @stream_socket_client($remote, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $ctx);
+        if (!$fp) {
+            error_log("SMTP connect failed ({$remote}): {$errno} {$errstr}");
+            return false;
+        }
+        stream_set_timeout($fp, $timeout);
+
+        try {
+            if (!_smtp_expect($fp, '', [220])) return false;
+            $helo = preg_replace('/[^a-zA-Z0-9.\-]/', '', $_SERVER['HTTP_HOST'] ?? 'localhost') ?: 'localhost';
+            if (!_smtp_expect($fp, "EHLO {$helo}", [250])) return false;
+
+            if ($secure === 'tls') {
+                if (!_smtp_expect($fp, 'STARTTLS', [220])) return false;
+                if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) return false;
+                if (!_smtp_expect($fp, "EHLO {$helo}", [250])) return false;
+            }
+
+            if ($user !== '') {
+                if (!_smtp_expect($fp, 'AUTH LOGIN', [334])) return false;
+                if (!_smtp_expect($fp, base64_encode($user), [334])) return false;
+                if (!_smtp_expect($fp, base64_encode($pass), [235])) return false;
+            }
+
+            $from = MAIL_FROM;
+            if (!_smtp_expect($fp, "MAIL FROM:<{$from}>", [250])) return false;
+            if (!_smtp_expect($fp, "RCPT TO:<{$to}>", [250, 251])) return false;
+            if (!_smtp_expect($fp, 'DATA', [354])) return false;
+
+            $encSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+            $fromName   = '=?UTF-8?B?' . base64_encode(MAIL_FROM_NAME) . '?=';
+            $headers    = [
+                "Date: " . date('r'),
+                "From: {$fromName} <{$from}>",
+                "Reply-To: {$from}",
+                "To: <{$to}>",
+                "Subject: {$encSubject}",
+                "MIME-Version: 1.0",
+                "Content-Type: text/html; charset=UTF-8",
+                "Content-Transfer-Encoding: base64",
+            ];
+            $msg = implode("\r\n", $headers) . "\r\n\r\n" . chunk_split(base64_encode($body)) . "\r\n.";
+            if (!_smtp_expect($fp, $msg, [250])) return false;
+            _smtp_expect($fp, 'QUIT', [221]);
+            return true;
+        } finally {
+            @fclose($fp);
+        }
+    }
+}
+
+// Send email (uses configured SMTP socket if enabled, otherwise native PHP mail())
 if (!function_exists('send_mail')) {
     function send_mail(string $to, string $subject, string $body): bool {
+        $to = str_replace(["\r", "\n"], '', trim($to));
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+        $driver = defined('MAIL_DRIVER') ? strtolower((string)MAIL_DRIVER) : 'mail';
+        if ($driver === 'smtp' && defined('SMTP_HOST') && SMTP_HOST !== '') {
+            return send_mail_smtp($to, $subject, $body);
+        }
         $from      = MAIL_FROM;
         $from_name = MAIL_FROM_NAME;
         $headers   = "From: {$from_name} <{$from}>\r\n";
@@ -413,7 +553,7 @@ if (!function_exists('send_mail')) {
         $headers  .= "MIME-Version: 1.0\r\n";
         $headers  .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers  .= "X-Mailer: PHP/" . PHP_VERSION;
-        return mail($to, $subject, $body, $headers);
+        return @mail($to, $subject, $body, $headers);
     }
 }
 
@@ -567,6 +707,88 @@ function upload_item_image(array $file, ?string $old_image = null): ?string {
         throw new RuntimeException('Gagal menyimpan file foto.');
     }
     return 'uploads/items/' . $filename;
+}
+
+// Ensure audit_logs table exists even on un-migrated databases
+function audit_logs_ensure_table(?mysqli $db = null): bool {
+    static $checked = false;
+    if ($checked) return true;
+    try {
+        $db = $db ?: (function_exists('getDB') ? getDB() : null);
+        if (!$db) return false;
+        $db->query("CREATE TABLE IF NOT EXISTS `audit_logs` (
+            `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `company_id` INT UNSIGNED NULL,
+            `user_id` INT UNSIGNED NULL,
+            `username` VARCHAR(60) NOT NULL DEFAULT '',
+            `action` VARCHAR(60) NOT NULL,
+            `entity_type` VARCHAR(50) NOT NULL DEFAULT '',
+            `entity_id` INT UNSIGNED NULL,
+            `reference_no` VARCHAR(60) NOT NULL DEFAULT '',
+            `description` VARCHAR(500) NOT NULL DEFAULT '',
+            `ip_address` VARCHAR(45) NOT NULL DEFAULT '',
+            `user_agent` VARCHAR(255) NOT NULL DEFAULT '',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_audit_comp_created` (`company_id`, `created_at`, `id`),
+            INDEX `idx_audit_action_created` (`action`, `created_at`, `id`),
+            INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $checked = true;
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+// Safe best-effort audit logger for operational, security, and export events
+function audit_log(
+    string $action,
+    string $entity_type = '',
+    $entity_id = null,
+    string $reference_no = '',
+    string $description = '',
+    ?int $company_id = null,
+    ?int $user_id = null,
+    string $username = ''
+): void {
+    try {
+        if (!function_exists('getDB')) return;
+        $db = getDB();
+        if (!audit_logs_ensure_table($db)) return;
+
+        if ($company_id === null && function_exists('current_company_id') && !empty($_SESSION['active_company'])) {
+            $company_id = current_company_id();
+        }
+        $sessUser = $_SESSION['user'] ?? null;
+        if ($user_id === null && is_array($sessUser) && !empty($sessUser['id'])) {
+            $user_id = (int)$sessUser['id'];
+        }
+        if ($username === '' && is_array($sessUser)) {
+            $username = (string)($sessUser['username'] ?? ($sessUser['name'] ?? ''));
+        }
+
+        $act  = mb_substr(trim($action), 0, 60, 'UTF-8');
+        $ent  = mb_substr(trim($entity_type), 0, 50, 'UTF-8');
+        $ref  = mb_substr(trim($reference_no), 0, 60, 'UTF-8');
+        $desc = mb_substr(trim(preg_replace('/\s+/', ' ', $description) ?? ''), 0, 500, 'UTF-8');
+        $uname = mb_substr(trim($username), 0, 60, 'UTF-8');
+        $ip   = mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
+        $ua   = mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? (PHP_SAPI === 'cli' ? 'CLI' : '')), 0, 255, 'UTF-8');
+        $eid  = ($entity_id !== null && (int)$entity_id > 0) ? (int)$entity_id : null;
+        $cid  = ($company_id !== null && $company_id > 0) ? $company_id : null;
+        $uid  = ($user_id !== null && $user_id > 0) ? $user_id : null;
+
+        $st = $db->prepare('INSERT INTO audit_logs
+            (company_id, user_id, username, action, entity_type, entity_id, reference_no, description, ip_address, user_agent)
+            VALUES (?,?,?,?,?,?,?,?,?,?)');
+        if ($st) {
+            $st->bind_param('iisssissss', $cid, $uid, $uname, $act, $ent, $eid, $ref, $desc, $ip, $ua);
+            $st->execute();
+            $st->close();
+        }
+    } catch (Throwable $e) {
+        error_log('audit_log skipped: ' . $e->getMessage());
+    }
 }
 
 // Delete item image file from disk

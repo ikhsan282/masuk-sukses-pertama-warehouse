@@ -30,6 +30,7 @@ try {
     $del = $db->prepare('DELETE FROM stock_out WHERE id=?');
     $del->bind_param('i',$id); $del->execute(); $del->close();
     $db->commit();
+    audit_log('stock_out.delete', 'stock_out', $id, '', "Menghapus transaksi barang keluar #{$id} dan mengembalikan stok");
     set_flash('success','Transaksi barang keluar berhasil dihapus dan stok dikembalikan.');
 } catch (Exception $e) {
     $db->rollback();

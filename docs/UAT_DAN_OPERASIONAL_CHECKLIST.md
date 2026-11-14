@@ -9,22 +9,22 @@ Dokumen ini menjadi panduan standar sebelum rilis/go-live maupun audit berkala p
 Jalankan seluruh pemeriksaan berikut dari root direktori aplikasi sebelum membuka akses ke pengguna:
 
 1. **Verifikasi Konfigurasi Produksi**
-   - Pastikan `config/config.php` (`APP_URL`) dan `config/database.php` (`DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_PORT`) sudah sesuai environment target.
-   - Untuk server produksi Apache, gunakan aturan `.htaccess.production` yang memblokir akses langsung ke direktori `config/`, `includes/`, `database/`, `logs/`, `cron/`, `backups/`, `tests/`, dan `docs/`.
-   - Pastikan file backup dan konfigurasi lokal tidak ikut ter-commit (`.gitignore` mengecualikan `.env`, `config/*.local.php`, `backups/*.sql`, `backups/*.sql.gz`, `backups/*.zip`, `logs/*.log`).
+   - Salin `.env.example` menjadi `.env` atau `config/config.local.example.php` menjadi `config/config.local.php` sesuai environment target (`DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_PORT`, `APP_URL`, `MAIL_DRIVER`, `SMTP_*`). Bila `APP_URL` tidak diisi eksplisit, `config/env.php` mendeteksi scheme/host/subfolder HTTP secara otomatis.
+   - Pastikan aturan `.htaccess` aktif pada Apache (`AllowOverride All`) untuk memblokir akses langsung ke `.env`, `.user.ini`, `config/`, `includes/`, `database/`, `logs/`, `cron/`, `backups/`, `tests/`, dan `docs/`, serta mengaktifkan security headers.
+   - Pastikan file backup dan konfigurasi lokal tidak ikut ter-commit (`.gitignore` mengecualikan `.env`, `config/config.local.php`, `config/*.local.php`, `backups/*.sql`, `backups/*.sql.gz`, `backups/*.zip`, `logs/*.log`).
 
 2. **Verifikasi Tabel, Charset, Master PT/Role, & Composite Index**
    ```bash
    php cron/verify_production_db.php
    ```
-   Jika terdapat index yang belum terpasang pada database existing, jalankan mode idempoten:
+   Jika terdapat index atau tabel keamanan/audit yang belum terpasang pada database existing, jalankan mode idempoten:
    ```bash
    php cron/verify_production_db.php --apply-missing
    ```
    Output wajib berstatus **`[PASS]`** dengan:
-   - `27` tabel inti berengine **InnoDB** dan charset **utf8mb4**.
+   - `29` tabel inti berengine **InnoDB** dan charset **utf8mb4** (termasuk `login_attempts` dan `audit_logs`).
    - Entitas PT default aktif (`MSP`, `SLN`, `PDM`) dan `4` role inti (`Super Admin`, `Admin`, `Staff Gudang`, `Viewer`).
-   - `41/41` composite & lookup indexes pada `13` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id` dan `idx_transfers_to_comp_date_id`).
+   - `45/45` composite & lookup indexes pada `15` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, dan index `audit_logs`).
 
 3. **Verifikasi Proteksi Direktori Backup over HTTP**
    - Uji akses URL `<APP_URL>/backups/` melalui browser/curl. Server wajib mengembalikan HTTP **`403 Forbidden`**.
@@ -69,6 +69,7 @@ Sebelum go-live (pastikan web server aktif sesuai `APP_URL` atau set env `UAT_BA
 ```bash
 php tests/uat_roles_workflow_test.php
 php tests/grid_pentest_test.php
+php tests/phase5_improvements_test.php
 ```
 
 Cakupan otomatis `tests/uat_roles_workflow_test.php`:
@@ -101,8 +102,12 @@ Cakupan otomatis `tests/uat_roles_workflow_test.php`:
 | 5 | Alur PO -> Retur | Buat PO -> Submit -> Approve -> Partial Receive -> Retur Supplier | Status PO bergerak `draft -> pending -> partial -> completed`; stok dan mutasi sinkron | [ ] |
 | 6 | Transfer Antar PT | Transfer barang dari **PT A** ke **PT B** | Stok PT asal berkurang, stok PT tujuan bertambah, muncul di daftar transfer kedua PT | [ ] |
 | 7 | Stock Opname | Buat sesi -> Input Qty Fisik -> Lihat Variance -> Finalisasi | Adjustment & mutasi tercatat otomatis saat finalisasi; sesi terkunci (`Finalized`) | [ ] |
-| 8 | Export & Cetak | Unduh `CSV` dan buka mode `Print` di halaman laporan | Tidak ada formula Excel mentah tereksekusi (`CWE-1236`), tabel cetak bersih | [ ] |
+| 8 | Export & Cetak | Unduh `PDF`, `Excel (.xlsx)`, `CSV`, dan buka `Tampilan Cetak` di halaman Master, Laporan, & Audit Log | File `.pdf` dan `.xlsx` valid terbuka tanpa error, formula Excel ternetralkan (`CWE-1236`), serta terekam di `audit_logs` | [ ] |
 | 9 | PWA & Path Agnostik | Install/register Service Worker (`sw.js`) & simulasi koneksi **Offline** | Aset fallback `offline.html` muncul dan tombol Portal mengarah ke `<base>/pages/portal.php` | [ ] |
+| 10 | Import Barang Excel (.xlsx) & CSV | Unggah `.xlsx` (tanpa memerlukan `ext-zip`) atau `.csv` di `pages/items/import.php`, lalu klik **Konfirmasi Import** | Pratinjau terbaca akurat dan konfirmasi berhasil menyimpan/memperbarui barang tanpa error file sementara | [ ] |
+| 11 | Onboarding User & Brute-Force Guard | Tambah user baru dengan/tanpa opsi verifikasi langsung, lalu uji salah sandi 5x pada user uji terisolasi | Admin dapat mengaktifkan akun instan atau klik verifikasi 1 klik; percobaan ke-6 dikunci 300 detik (HTTP `429`) | [ ] |
+| 12 | Dashboard Operasional & Multi-PT | Buka `pages/dashboard.php` di Light & Dark Mode, klik toggle `7 Hari / 30 Hari`, cek panel Tugas Tertunda & tabel Multi-PT | Tinggi 4 kartu KPI seragam (`compact_idr`), Chart adaptif Dark Mode, tugas tertunda akurat, dan ringkasan lintas PT tampil | [ ] |
+| 13 | Audit Log & Jejak Aktivitas | Buka `pages/audit-logs/index.php` lewat menu sidebar, filter kategori/tanggal, dan export PDF/Excel | Login, approval PO/Adjustment/Opname, CRUD/Import barang, dan export tercatat lengkap beserta IP & PT | [ ] |
 
 ---
 

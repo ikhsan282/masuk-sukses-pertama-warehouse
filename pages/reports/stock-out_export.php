@@ -18,9 +18,66 @@ $params = [$date_from, $date_to];
 $types = 'ss';
 if ($loc_filter) { $where_parts[] = 'so.location_id=?'; $params[] = $loc_filter; $types .= 'i'; }
 $where = 'WHERE ' . implode(' AND ', $where_parts);
+$format = strtolower(req_str('format', 'csv'));
+
+if ($format === 'pdf' || $format === 'excel') {
+    require_once __DIR__ . '/../../includes/export.php';
+    $max_rows = $format === 'pdf' ? EXPORT_MASTER_PDF_MAX_ROWS : EXPORT_MASTER_XLSX_MAX_ROWS;
+    $limit_q  = $max_rows + 1;
+    $p_params = $params;
+    $p_params[] = $limit_q;
+    $st = $db->prepare("SELECT so.reference_no, comp.code AS comp_code, so.transaction_date, so.recipient, so.purpose,
+        l.name AS location_name, COALESCE(u.name, '-') AS user_name,
+        (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
+        (SELECT COALESCE(SUM(d.quantity),0) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
+        FROM stock_out so JOIN locations l ON l.id=so.location_id
+        LEFT JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
+        $where ORDER BY so.id DESC LIMIT ?");
+    $st->bind_param($types . 'i', ...$p_params);
+    $st->execute();
+    $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $st->close();
+    $truncated = count($raw) > $max_rows;
+    if ($truncated) array_pop($raw);
+
+    $rows = [];
+    foreach ($raw as $idx => $r) {
+        $rows[] = [
+            $idx + 1,
+            $r['reference_no'],
+            $r['comp_code'] ?? 'MSP',
+            substr((string)$r['transaction_date'], 0, 10),
+            $r['location_name'],
+            $r['recipient'] ?? '-',
+            $r['purpose'] ?? '-',
+            (int)$r['item_count'],
+            (int)$r['total_qty'],
+            $r['user_name'],
+        ];
+    }
+    $columns = [
+        ['label' => '#',         'type' => 'int',  'align' => 'C', 'pdf_width' => 24,  'xlsx_width' => 6],
+        ['label' => 'Referensi', 'type' => 'text', 'align' => 'L', 'pdf_width' => 88,  'xlsx_width' => 18],
+        ['label' => 'PT',        'type' => 'text', 'align' => 'C', 'pdf_width' => 42,  'xlsx_width' => 8],
+        ['label' => 'Tanggal',   'type' => 'text', 'align' => 'C', 'pdf_width' => 64,  'xlsx_width' => 13],
+        ['label' => 'Lokasi',    'type' => 'text', 'align' => 'L', 'pdf_width' => 126, 'xlsx_width' => 22],
+        ['label' => 'Penerima',  'type' => 'text', 'align' => 'L', 'pdf_width' => 120, 'xlsx_width' => 22],
+        ['label' => 'Keperluan', 'type' => 'text', 'align' => 'L', 'pdf_width' => 130, 'xlsx_width' => 24],
+        ['label' => 'Item',      'type' => 'int',  'align' => 'R', 'pdf_width' => 40,  'xlsx_width' => 8],
+        ['label' => 'Total Qty', 'type' => 'int',  'align' => 'R', 'pdf_width' => 60,  'xlsx_width' => 12],
+        ['label' => 'Oleh',      'type' => 'text', 'align' => 'L', 'pdf_width' => 80,  'xlsx_width' => 16],
+    ];
+    $subtitle = 'Cakupan: ' . $cf['label'] . ' | Periode: ' . tgl($date_from) . ' - ' . tgl($date_to) . ' | Total: ' . count($rows) . ' transaksi' . ($truncated ? " (maks. {$max_rows})" : '');
+    audit_log('export.' . $format, 'report_stock_out', null, '', "Export laporan barang keluar format " . strtoupper($format) . " (" . count($rows) . " transaksi)");
+    if ($format === 'pdf') {
+        export_pdf_send('laporan_barang_keluar_' . date('Ymd') . '.pdf', 'Laporan Barang Keluar', $subtitle, $columns, $rows, 'L');
+    }
+    export_xlsx_send('laporan_barang_keluar_' . date('Ymd') . '.xlsx', 'Laporan Barang Keluar', $subtitle, $columns, $rows, 'Barang Keluar');
+}
 
 // Print-friendly HTML export (capped at EXPORT_PRINT_MAX_ROWS)
-if (req_str('format')==='print') {
+if ($format==='print') {
+    audit_log('export.print', 'report_stock_out', null, '', 'Cetak tampilan laporan barang keluar');
     $title='Laporan Barang Keluar'; $subtitle='Cakupan: '.$cf['label'].' | Periode: '.tgl($date_from).' - '.tgl($date_to);
     $tot=$db->prepare("SELECT COALESCE(SUM(d.quantity),0) FROM stock_out so JOIN stock_out_details d ON d.stock_out_id=so.id $where");
     $tot->bind_param($types,...$params);$tot->execute();$tot->bind_result($period_qty);$tot->fetch();$tot->close();
@@ -55,6 +112,7 @@ if (req_str('format')==='print') {
 }
 
 // Chunked keyset CSV export (capped at EXPORT_CSV_MAX_ROWS, formula-safe)
+audit_log('export.csv', 'report_stock_out', null, '', 'Export CSV laporan barang keluar');
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="barang_keluar_'.date('Ymd').'.csv"');
 echo "\xEF\xBB\xBF";

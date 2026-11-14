@@ -964,6 +964,8 @@ function master_export_serve(string $entity): void {
     $maxRows = $format === 'pdf' ? EXPORT_MASTER_PDF_MAX_ROWS : EXPORT_MASTER_XLSX_MAX_ROWS;
     $dataset = master_export_fetch($db, $entity, $maxRows);
 
+    audit_log('export.' . $format, 'master_' . $entity, null, '', 'Export master ' . $entity . ' format ' . strtoupper($format) . ' (' . count($dataset['rows']) . ' baris)');
+
     if ($format === 'pdf') {
         export_pdf_send(
             $dataset['filename'] . '.pdf',

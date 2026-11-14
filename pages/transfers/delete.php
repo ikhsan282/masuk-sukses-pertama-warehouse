@@ -33,6 +33,7 @@ try {
     $del=$db->prepare('DELETE FROM transfers WHERE id=?');
     $del->bind_param('i',$id); $del->execute(); $del->close();
     $db->commit();
+    audit_log('transfer.delete', 'transfer', $id, '', "Menghapus transfer #{$id} dan mengembalikan stok");
     set_flash('success','Transfer berhasil dihapus dan stok dikembalikan.');
 } catch (Exception $e) {
     $db->rollback();

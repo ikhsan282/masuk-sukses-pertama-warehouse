@@ -25,7 +25,61 @@ $base_sql = "SELECT s.code, s.name, s.contact_person, s.phone,
     WHERE s.is_active=1" . ($supplier_filter ? " AND s.id=?" : "") . "
     GROUP BY s.id ORDER BY total_value DESC";
 
-if (req_str('format') === 'print') {
+$format = strtolower(req_str('format', 'csv'));
+
+if ($format === 'pdf' || $format === 'excel') {
+    require_once __DIR__ . '/../../includes/export.php';
+    $max_rows = $format === 'pdf' ? EXPORT_MASTER_PDF_MAX_ROWS : EXPORT_MASTER_XLSX_MAX_ROWS;
+    $limit_q  = $max_rows + 1;
+    $params   = [$start_date, $end_date];
+    $types    = 'ss';
+    if ($supplier_filter) { $params[] = $supplier_filter; $types .= 'i'; }
+    $params[] = $limit_q; $types .= 'i';
+    $st = $db->prepare($base_sql . " LIMIT ?");
+    $st->bind_param($types, ...$params);
+    $st->execute();
+    $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+    $st->close();
+    $truncated = count($raw) > $max_rows;
+    if ($truncated) array_pop($raw);
+
+    $rows = [];
+    foreach ($raw as $idx => $r) {
+        $rows[] = [
+            $idx + 1,
+            $r['code'],
+            $r['name'],
+            $r['contact_person'] ?: '-',
+            $r['phone'] ?: '-',
+            (int)$r['total_po'],
+            (int)$r['completed_po'],
+            $r['avg_lead_time'] !== null ? round((float)$r['avg_lead_time'], 1) . ' hr' : '-',
+            $r['on_time_rate'] !== null ? $r['on_time_rate'] . '%' : '-',
+            (float)$r['total_value'],
+        ];
+    }
+    $columns = [
+        ['label' => '#',          'type' => 'int',      'align' => 'C', 'pdf_width' => 24,  'xlsx_width' => 6],
+        ['label' => 'Kode',       'type' => 'text',     'align' => 'C', 'pdf_width' => 56,  'xlsx_width' => 12],
+        ['label' => 'Supplier',   'type' => 'text',     'align' => 'L', 'pdf_width' => 170, 'xlsx_width' => 30],
+        ['label' => 'Kontak',     'type' => 'text',     'align' => 'L', 'pdf_width' => 100, 'xlsx_width' => 20],
+        ['label' => 'Telepon',    'type' => 'text',     'align' => 'L', 'pdf_width' => 82,  'xlsx_width' => 16],
+        ['label' => 'Total PO',   'type' => 'int',      'align' => 'R', 'pdf_width' => 42,  'xlsx_width' => 10],
+        ['label' => 'Selesai',    'type' => 'int',      'align' => 'R', 'pdf_width' => 46,  'xlsx_width' => 10],
+        ['label' => 'Lead Time',  'type' => 'text',     'align' => 'R', 'pdf_width' => 56,  'xlsx_width' => 14],
+        ['label' => 'On-Time',    'type' => 'text',     'align' => 'R', 'pdf_width' => 52,  'xlsx_width' => 12],
+        ['label' => 'Total Nilai','type' => 'currency', 'align' => 'R', 'pdf_width' => 104, 'xlsx_width' => 18],
+    ];
+    $subtitle = 'Cakupan: ' . $cf['label'] . ' | Periode: ' . tgl($start_date) . ' - ' . tgl($end_date) . ' | Total: ' . count($rows) . ' supplier' . ($truncated ? " (maks. {$max_rows})" : '');
+    audit_log('export.' . $format, 'report_supplier_performance', null, '', "Export performa supplier format " . strtoupper($format) . " (" . count($rows) . " supplier)");
+    if ($format === 'pdf') {
+        export_pdf_send('laporan_performa_supplier_' . date('Ymd') . '.pdf', 'Laporan Performa Supplier', $subtitle, $columns, $rows, 'L');
+    }
+    export_xlsx_send('laporan_performa_supplier_' . date('Ymd') . '.xlsx', 'Laporan Performa Supplier', $subtitle, $columns, $rows, 'Performa Supplier');
+}
+
+if ($format === 'print') {
+    audit_log('export.print', 'report_supplier_performance', null, '', 'Cetak tampilan performa supplier');
     $title = 'Laporan Performa Supplier';
     $subtitle = 'Cakupan: ' . $cf['label'] . ' | Periode: ' . tgl($start_date) . ' - ' . tgl($end_date);
     $print_limit = EXPORT_PRINT_MAX_ROWS + 1;
@@ -60,6 +114,7 @@ if (req_str('format') === 'print') {
 }
 
 // CSV export (capped at EXPORT_CSV_MAX_ROWS, formula-safe)
+audit_log('export.csv', 'report_supplier_performance', null, '', 'Export CSV laporan performa supplier');
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="supplier_performance_'.date('Ymd').'.csv"');
 echo "\xEF\xBB\xBF";

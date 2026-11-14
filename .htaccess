@@ -23,8 +23,8 @@ RewriteRule ^database/     - [F,L]
 # Block internal dirs not meant for the browser (tests, cron, docs, logs, backups)
 RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
 
-# Prevent access to .env, .git, etc.
-<FilesMatch "(^\.env|^\.git|\.sql$|\.log$|\.bak$)">
+# Prevent access to .env, .git, .user.ini, etc.
+<FilesMatch "(^\.env|^\.git|^\.user\.ini|\.sql$|\.log$|\.bak$)">
     Order Allow,Deny
     Deny from all
 </FilesMatch>
@@ -35,6 +35,9 @@ RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=()"
+    # Aktifkan HSTS di produksi setelah HTTPS/SSL berjalan stabil:
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 </IfModule>
 
 # PHP settings (shared hosting safe)

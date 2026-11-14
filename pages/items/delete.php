@@ -11,7 +11,11 @@ $id = req_int('id');
 $db = getDB();
 $st = $db->prepare('UPDATE items SET is_active=0 WHERE id=?');
 $st->bind_param('i', $id);
-if ($st->execute() && $st->affected_rows > 0) set_flash('success','Barang berhasil dihapus.');
-else set_flash('error','Gagal menghapus barang.');
+if ($st->execute() && $st->affected_rows > 0) {
+    audit_log('item.delete', 'item', $id, '', "Menonaktifkan barang #{$id}");
+    set_flash('success','Barang berhasil dihapus.');
+} else {
+    set_flash('error','Gagal menghapus barang.');
+}
 $st->close();
 redirect(APP_URL . '/pages/items/index.php');

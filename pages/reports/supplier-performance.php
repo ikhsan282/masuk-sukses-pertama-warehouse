@@ -125,11 +125,7 @@ include __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-graph-up me-2 text-primary"></i>Laporan Performa Supplier</h4>
-  <div class="btn-group btn-group-sm">
-    <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="supplier-performance_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="supplier-performance_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
-  </div>
+  <?= report_export_dropdown_html(['company_id'=>$cf['param_value'],'supplier_id'=>$supplier_filter,'start_date'=>$start_date,'end_date'=>$end_date], 'supplier-performance_export.php') ?>
 </div>
 
 <div class="alert alert-info py-2 small">

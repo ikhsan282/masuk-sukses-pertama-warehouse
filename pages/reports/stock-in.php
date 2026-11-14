@@ -50,11 +50,7 @@ $page_title='Laporan Barang Masuk'; include __DIR__.'/../../includes/header.php'
 ?>
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4><i class="bi bi-file-earmark-arrow-down me-2 text-primary"></i>Laporan Barang Masuk</h4>
-  <div class="btn-group btn-group-sm">
-    <button type="button" onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Cetak</button>
-    <a href="stock-in_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'supplier_id'=>$sup_filter])?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV</a>
-    <a href="stock-in_export.php?<?=http_build_query(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'supplier_id'=>$sup_filter,'format'=>'print'])?>" class="btn btn-outline-danger"><i class="bi bi-printer me-1"></i>Print</a>
-  </div>
+  <?= report_export_dropdown_html(['company_id'=>$cf['param_value'],'date_from'=>$date_from,'date_to'=>$date_to,'supplier_id'=>$sup_filter], 'stock-in_export.php') ?>
 </div>
 
 <div class="row g-3 mb-3">

@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     try {
         $adjustments = finalize_stock_opname($db, $id, current_user()['id']);
+        audit_log('stock_opname.finalize', 'stock_opname', (int)$id, 'OPNAME-' . $id, 'Finalisasi stock opname #' . $id . ' (' . count($adjustments) . ' penyesuaian)');
         set_flash('success', 'Stock opname difinalisasi. ' . count($adjustments) . ' penyesuaian stok dan mutasi telah diposting.');
     } catch (Throwable $e) { set_flash('error', 'Finalisasi gagal: ' . $e->getMessage()); }
     redirect(APP_URL . '/pages/stock-opname/report.php?id=' . $id);
