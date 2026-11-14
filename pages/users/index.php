@@ -32,10 +32,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token,email_verified_at) VALUES (?,?,?,?,?,NULL,NOW())');
                 $st->bind_param('issss',$role_id,$name,$username,$email,$hash);
             } else {
-                $token = bin2hex(random_bytes(32));
-                $hash  = password_hash($password, PASSWORD_BCRYPT, ['cost'=>12]);
-                $st    = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token) VALUES (?,?,?,?,?,?)');
-                $st->bind_param('isssss',$role_id,$name,$username,$email,$hash,$token);
+                $token     = bin2hex(random_bytes(32));
+                $tokenHash = auth_token_hash($token);
+                $hash      = password_hash($password, PASSWORD_BCRYPT, ['cost'=>12]);
+                $st        = $db->prepare('INSERT INTO users (role_id,name,username,email,password,verification_token) VALUES (?,?,?,?,?,?)');
+                $st->bind_param('isssss',$role_id,$name,$username,$email,$hash,$tokenHash);
             }
             if ($st->execute()) {
                 $new_uid = $db->insert_id;
@@ -107,6 +108,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $uc_st->close();
             }
+            if (!$active) {
+                auth_revoke_all_remember_tokens($id);
+            }
+            auth_touch_permissions_epoch();
             if ($id === (int)current_user()['id']) {
                 sync_active_user_session();
             }
@@ -128,6 +133,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $st   = $db->prepare('UPDATE users SET password=? WHERE id=?');
             $st->bind_param('si',$hash,$id);
             if ($st->execute()) {
+                auth_revoke_all_remember_tokens($id);
+                if ($id === (int)current_user()['id']) {
+                    sync_active_user_session();
+                }
                 audit_log('user.reset_password', 'users', $id, '', "Reset kata sandi user #{$id} oleh Admin");
                 set_flash('success','Kata sandi berhasil direset.');
             } else {
@@ -142,6 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($id === (int)current_user()['id']) {
             set_flash('error','Tidak dapat menghapus akun sendiri.');
         } else {
+            auth_revoke_all_remember_tokens($id);
             $st = $db->prepare('DELETE FROM users WHERE id=?');
             $st->bind_param('i',$id);
             if ($st->execute()) {

@@ -70,15 +70,18 @@ if ($current_user && can('stock.alerts')) {
               <li><h6 class="dropdown-header"><i class="bi bi-buildings me-1"></i>Pilih Perusahaan Aktif</h6></li>
               <?php foreach ($u_comps as $uc): ?>
               <li>
-                <a class="dropdown-item d-flex align-items-center justify-content-between <?= (int)$uc['id'] === (int)$active_comp['id'] ? 'active' : '' ?>" 
-                   href="<?= APP_URL ?>/auth/switch-company.php?id=<?= $uc['id'] ?>">
-                  <span>
-                    <strong>[<?= htmlspecialchars($uc['code']) ?>]</strong> <?= htmlspecialchars($uc['name']) ?>
-                  </span>
-                  <?php if (!empty($uc['is_holding'])): ?>
-                    <span class="badge text-bg-light ms-2" style="font-size:0.65rem;">Holding</span>
-                  <?php endif; ?>
-                </a>
+                <form method="POST" action="<?= APP_URL ?>/auth/switch-company.php" class="m-0">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="company_id" value="<?= (int)$uc['id'] ?>">
+                  <button type="submit" class="dropdown-item d-flex align-items-center justify-content-between <?= (int)$uc['id'] === (int)$active_comp['id'] ? 'active' : '' ?>">
+                    <span>
+                      <strong>[<?= htmlspecialchars($uc['code']) ?>]</strong> <?= htmlspecialchars($uc['name']) ?>
+                    </span>
+                    <?php if (!empty($uc['is_holding'])): ?>
+                      <span class="badge text-bg-light ms-2" style="font-size:0.65rem;">Holding</span>
+                    <?php endif; ?>
+                  </button>
+                </form>
               </li>
               <?php endforeach; ?>
             </ul>

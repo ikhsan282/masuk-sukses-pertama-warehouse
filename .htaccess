@@ -8,25 +8,20 @@ ServerSignature Off
 # RewriteCond %{HTTPS} off
 # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-# Protect sensitive directories
-<FilesMatch "^(config|database|includes)">
-    Order Allow,Deny
-    Deny from all
-</FilesMatch>
-
-# Block direct access to config and includes
+# Protect sensitive directories, dotfiles & extensions
 RewriteEngine On
-RewriteRule ^config/       - [F,L]
-RewriteRule ^includes/     - [F,L]
-RewriteRule ^database/     - [F,L]
+RewriteRule ^(config|includes|database|tests|cron|docs|logs|backups)/ - [F,L]
+RewriteRule (^|/)\.(git|env|user\.ini) - [F,L]
 
-# Block internal dirs not meant for the browser (tests, cron, docs, logs, backups)
-RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
-
-# Prevent access to .env, .git, .user.ini, etc.
-<FilesMatch "(^\.env|^\.git|^\.user\.ini|\.sql$|\.log$|\.bak$)">
-    Order Allow,Deny
-    Deny from all
+# Prevent access to .env, .git, .user.ini, SQL/logs/backups & package manifests
+<FilesMatch "(^\.env|^\.git|^\.user\.ini|\.sql$|\.log$|\.bak$|^composer\.(json|lock)$|^package\.json$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 # Security headers
@@ -36,6 +31,9 @@ RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=()"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self'; object-src 'self'; base-uri 'self'; form-action 'self'"
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
     # Aktifkan HSTS di produksi setelah HTTPS/SSL berjalan stabil:
     # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 </IfModule>

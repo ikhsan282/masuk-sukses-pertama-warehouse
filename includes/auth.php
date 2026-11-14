@@ -270,14 +270,41 @@ function auth_login(string $username, string $password, bool $remember = false):
     return true;
 }
 
+function auth_token_hash(string $token): string {
+    return hash('sha256', $token);
+}
+
+function auth_permissions_epoch_file(): string {
+    $scope = (defined('DB_NAME') ? (string)DB_NAME : 'db') . '|' . dirname(__DIR__);
+    return sys_get_temp_dir() . '/msp_perms_epoch_' . md5($scope) . '.txt';
+}
+
+function auth_current_permissions_epoch(): int {
+    $file = auth_permissions_epoch_file();
+    if (!is_file($file)) return 0;
+    return (int)@file_get_contents($file);
+}
+
+function auth_touch_permissions_epoch(): void {
+    $epoch = max(time(), auth_current_permissions_epoch() + 1);
+    @file_put_contents(auth_permissions_epoch_file(), (string)$epoch, LOCK_EX);
+}
+
 function _load_session(int $user_id): void {
     $db = getDB();
-    $st = $db->prepare('SELECT u.id, u.name, u.username, u.email, u.role_id, r.name AS role_name
+    $st = $db->prepare('SELECT u.id, u.name, u.username, u.email, u.role_id, u.password, r.name AS role_name
         FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? LIMIT 1');
     $st->bind_param('i', $user_id);
     $st->execute();
     $user = $st->get_result()->fetch_assoc();
     $st->close();
+
+    if (!$user) {
+        $_SESSION = [];
+        return;
+    }
+    $pwdHash = (string)($user['password'] ?? '');
+    unset($user['password']);
 
     // Load permissions
     $st2 = $db->prepare('SELECT p.name FROM permissions p
@@ -321,6 +348,9 @@ function _load_session(int $user_id): void {
     $_SESSION['perms']          = $perms;
     $_SESSION['user_companies'] = $companies;
     $_SESSION['active_company'] = $default_comp;
+    $_SESSION['pwd_sig']        = hash('sha256', $pwdHash);
+    $_SESSION['auth_role_id']   = (int)$user['role_id'];
+    $_SESSION['perms_epoch']    = auth_current_permissions_epoch();
 }
 
 // ── Multi-Company helpers ──────────────────────────────────────────────────
@@ -422,11 +452,69 @@ function company_filter_select_html(string $name = 'company_id', string $selecte
 }
 
 // ── Auth checks ────────────────────────────────────────────────────────────
+function auth_force_logout(string $reason = 'Sesi Anda telah berakhir. Silakan masuk kembali.'): void {
+    auth_revoke_remember_cookie();
+    $_SESSION = [];
+    if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+        session_regenerate_id(true);
+    }
+    set_flash('error', $reason);
+    redirect(APP_URL . '/auth/login.php');
+}
+
+function auth_validate_active_session(bool $redirectOnFailure = true): bool {
+    $uid = (int)($_SESSION['user']['id'] ?? 0);
+    if ($uid <= 0) {
+        return false;
+    }
+    try {
+        $db = getDB();
+        $st = $db->prepare('SELECT is_active, role_id, password FROM users WHERE id = ? LIMIT 1');
+        if (!$st) return true;
+        $st->bind_param('i', $uid);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+
+        $uname = (string)($_SESSION['user']['username'] ?? '');
+        if (!$row || empty($row['is_active'])) {
+            audit_log('session_revoked', 'user', $uid, '', 'Sesi dihentikan karena akun dinonaktifkan atau dihapus', null, $uid, $uname);
+            auth_revoke_all_remember_tokens($uid);
+            if ($redirectOnFailure) {
+                auth_force_logout('Akun Anda telah dinonaktifkan atau tidak lagi tersedia.');
+            }
+            auth_revoke_remember_cookie();
+            $_SESSION = [];
+            return false;
+        }
+
+        if (!empty($_SESSION['pwd_sig']) && !hash_equals((string)$_SESSION['pwd_sig'], hash('sha256', (string)$row['password']))) {
+            audit_log('session_invalidated', 'user', $uid, '', 'Sesi dihentikan karena kata sandi akun berubah', null, $uid, $uname);
+            if ($redirectOnFailure) {
+                auth_force_logout('Kata sandi akun telah diperbarui. Silakan masuk kembali.');
+            }
+            auth_revoke_remember_cookie();
+            $_SESSION = [];
+            return false;
+        }
+
+        $roleChanged  = isset($_SESSION['auth_role_id']) && (int)$row['role_id'] !== (int)$_SESSION['auth_role_id'];
+        $epochChanged = (int)($_SESSION['perms_epoch'] ?? 0) < auth_current_permissions_epoch();
+        if ($roleChanged || $epochChanged) {
+            sync_active_user_session();
+        }
+    } catch (Throwable $e) {
+        // Keep active session if DB check encounters a transient exception
+    }
+    return true;
+}
+
 function auth_check(): void {
     if (empty($_SESSION['user'])) {
         auth_attempt_remember_login();
     }
     if (empty($_SESSION['user'])) redirect(APP_URL . '/auth/login.php');
+    auth_validate_active_session(true);
 }
 
 function auth_guest(): void {
@@ -517,20 +605,26 @@ function require_company_access(int $company_id, bool $with_layout = true): void
 
 // ── Email verification ─────────────────────────────────────────────────────
 function send_verification_email(string $email, string $name, string $token): bool {
-    $link = APP_URL . '/auth/verify-email.php?token=' . urlencode($token);
+    $link    = APP_URL . '/auth/verify-email.php?token=' . urlencode($token);
+    $nameEsc = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+    $linkEsc = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
     $body = email_template('Verifikasi Email Anda',
-        "<p>Halo, <strong>{$name}</strong>!</p>
+        "<p>Halo, <strong>{$nameEsc}</strong>!</p>
         <p>Klik tombol di bawah untuk memverifikasi alamat email Anda:</p>
-        <p style='margin:24px 0'><a href='{$link}' class='btn'>Verifikasi Email</a></p>
+        <p style='margin:24px 0'><a href='{$linkEsc}' class='btn'>Verifikasi Email</a></p>
         <p>Link berlaku selama 24 jam. Jika Anda tidak mendaftar, abaikan email ini.</p>"
     );
     return send_mail($email, 'Verifikasi Email - ' . APP_NAME, $body);
 }
 
 function verify_email_token(string $token): bool {
-    $db = getDB();
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return false;
+    }
+    $db        = getDB();
+    $tokenHash = auth_token_hash($token);
     $st = $db->prepare('SELECT id FROM users WHERE verification_token=? AND email_verified_at IS NULL LIMIT 1');
-    $st->bind_param('s', $token);
+    $st->bind_param('s', $tokenHash);
     $st->execute();
     $row = $st->get_result()->fetch_assoc();
     $st->close();
@@ -544,7 +638,59 @@ function verify_email_token(string $token): bool {
 }
 
 // ── Forgot / Reset password ────────────────────────────────────────────────
+function password_reset_allow_attempt(string $email, string $ip): bool {
+    try {
+        $db = getDB();
+        if (!login_attempts_ensure_table($db)) return true;
+        $window   = 300;
+        $emailKey = mb_substr('pwd_reset:' . mb_strtolower(trim($email), 'UTF-8'), 0, 120, 'UTF-8');
+        $ipKey    = '__pwd_reset_ip__';
+
+        $st = $db->prepare('SELECT
+            COALESCE(SUM(username_key = ?), 0),
+            COALESCE(SUM(username_key = ?), 0)
+            FROM login_attempts
+            WHERE username_key IN (?, ?) AND ip_address = ? AND attempted_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        if (!$st) return true;
+        $st->bind_param('sssssi', $emailKey, $ipKey, $emailKey, $ipKey, $ip, $window);
+        $st->execute();
+        $st->bind_result($emailCnt, $ipCnt);
+        $st->fetch();
+        $st->close();
+
+        if ((int)$emailCnt >= 3 || (int)$ipCnt >= 10) {
+            return false;
+        }
+        login_record_failure($emailKey, $ip);
+        login_record_failure($ipKey, $ip);
+        return true;
+    } catch (Throwable $e) {
+        return true;
+    }
+}
+
+function auth_find_user_by_reset_token(string $token): ?int {
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return null;
+    }
+    $db        = getDB();
+    $tokenHash = auth_token_hash($token);
+    $st = $db->prepare('SELECT id FROM users WHERE reset_token=? AND reset_token_expires > NOW() AND is_active=1 LIMIT 1');
+    if (!$st) return null;
+    $st->bind_param('s', $tokenHash);
+    $st->execute();
+    $row = $st->get_result()->fetch_assoc();
+    $st->close();
+    return $row ? (int)$row['id'] : null;
+}
+
 function send_reset_email(string $email): bool {
+    $ip = mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
+    if (!password_reset_allow_attempt($email, $ip)) {
+        audit_log('password_reset_throttled', 'user', null, '', "Permintaan reset sandi dibatasi untuk '{$email}' dari IP {$ip}");
+        return false;
+    }
+
     $db = getDB();
     $st = $db->prepare('SELECT id, name FROM users WHERE email=? AND is_active=1 LIMIT 1');
     $st->bind_param('s', $email);
@@ -553,37 +699,37 @@ function send_reset_email(string $email): bool {
     $st->close();
     if (!$row) return false; // silently fail (don't reveal user existence)
 
-    $token   = bin2hex(random_bytes(32));
-    $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
+    $token     = bin2hex(random_bytes(32));
+    $tokenHash = auth_token_hash($token);
+    $expires   = date('Y-m-d H:i:s', strtotime('+1 hour'));
     $st2 = $db->prepare('UPDATE users SET reset_token=?, reset_token_expires=? WHERE id=?');
-    $st2->bind_param('ssi', $token, $expires, $row['id']);
+    $st2->bind_param('ssi', $tokenHash, $expires, $row['id']);
     $st2->execute();
     $st2->close();
 
-    $link = APP_URL . '/auth/reset-password.php?token=' . urlencode($token);
+    $link    = APP_URL . '/auth/reset-password.php?token=' . urlencode($token);
+    $nameEsc = htmlspecialchars((string)$row['name'], ENT_QUOTES, 'UTF-8');
+    $linkEsc = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
     $body = email_template('Reset Kata Sandi',
-        "<p>Halo, <strong>{$row['name']}</strong>!</p>
+        "<p>Halo, <strong>{$nameEsc}</strong>!</p>
         <p>Klik tombol di bawah untuk mereset kata sandi Anda:</p>
-        <p style='margin:24px 0'><a href='{$link}' class='btn'>Reset Kata Sandi</a></p>
+        <p style='margin:24px 0'><a href='{$linkEsc}' class='btn'>Reset Kata Sandi</a></p>
         <p>Link berlaku selama 1 jam. Jika Anda tidak meminta reset, abaikan email ini.</p>"
     );
     return send_mail($email, 'Reset Kata Sandi - ' . APP_NAME, $body);
 }
 
 function reset_password(string $token, string $new_password): bool {
-    $db = getDB();
-    $st = $db->prepare('SELECT id FROM users WHERE reset_token=? AND reset_token_expires > NOW() LIMIT 1');
-    $st->bind_param('s', $token);
-    $st->execute();
-    $row = $st->get_result()->fetch_assoc();
-    $st->close();
-    if (!$row) return false;
+    $uid = auth_find_user_by_reset_token($token);
+    if ($uid === null) return false;
 
+    $db   = getDB();
     $hash = password_hash($new_password, PASSWORD_BCRYPT, ['cost' => 12]);
     $st2  = $db->prepare('UPDATE users SET password=?, reset_token=NULL, reset_token_expires=NULL WHERE id=?');
-    $st2->bind_param('si', $hash, $row['id']);
+    $st2->bind_param('si', $hash, $uid);
     $st2->execute();
     $st2->close();
-    auth_revoke_all_remember_tokens((int)$row['id']);
+    auth_revoke_all_remember_tokens($uid);
+    audit_log('password_reset_complete', 'user', $uid, '', 'Kata sandi direset melalui tautan pemulihan', null, $uid, '');
     return true;
 }

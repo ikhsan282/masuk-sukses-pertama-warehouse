@@ -94,14 +94,18 @@ $active_tab = $search !== '' ? 'stock' : 'home';
   </div>
   <div class="d-flex align-items-center gap-2">
     <?php if (count($user_companies) > 1): ?>
-    <select class="form-select form-select-sm portal-pt-select" aria-label="Pilih Perusahaan (PT)"
-      onchange="if(this.value) location.href='<?= APP_URL ?>/auth/switch-company.php?redirect=/pages/portal.php&company_id='+encodeURIComponent(this.value)">
-      <?php foreach ($user_companies as $uc): ?>
-        <option value="<?= (int)$uc['id'] ?>" <?= (int)$uc['id'] === $cid ? 'selected' : '' ?>>
-          [<?= e($uc['code']) ?>] <?= e($uc['name']) ?>
-        </option>
-      <?php endforeach; ?>
-    </select>
+    <form method="POST" action="<?= APP_URL ?>/auth/switch-company.php" class="m-0">
+      <?= csrf_field() ?>
+      <input type="hidden" name="redirect" value="/pages/portal.php">
+      <select name="company_id" class="form-select form-select-sm portal-pt-select" aria-label="Pilih Perusahaan (PT)"
+        onchange="if(this.value) this.form.submit()">
+        <?php foreach ($user_companies as $uc): ?>
+          <option value="<?= (int)$uc['id'] ?>" <?= (int)$uc['id'] === $cid ? 'selected' : '' ?>>
+            [<?= e($uc['code']) ?>] <?= e($uc['name']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </form>
     <?php endif; ?>
     <button type="button" class="btn btn-sm btn-outline-light" id="darkToggle" title="Beralih ke mode gelap" aria-label="Toggle tema gelap">
       <i class="bi bi-moon-stars"></i>

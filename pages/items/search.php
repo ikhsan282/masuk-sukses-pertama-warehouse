@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
-if (empty($_SESSION['user'])) {
+if (empty($_SESSION['user']) || !auth_validate_active_session(false)) {
     http_response_code(401);
     header('Content-Type: application/json; charset=UTF-8');
     echo json_encode([]);

@@ -24,6 +24,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && can('roles.edit')) {
         }
         $ins->close();
     }
+    auth_touch_permissions_epoch();
+    sync_active_user_session();
     set_flash('success','Izin peran berhasil disimpan.');
     audit_log('role.permissions', 'roles', $role_id, '', 'Memperbarui izin peran #' . $role_id . ' (' . count($perms) . ' izin)');
     redirect(APP_URL.'/pages/roles/index.php?role_id='.$role_id);

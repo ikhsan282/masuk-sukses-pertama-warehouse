@@ -3,27 +3,42 @@ RewriteEngine On
 RewriteCond %{HTTPS} off
 RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-# Security Headers
-Header set X-Frame-Options "DENY"
-Header set X-Content-Type-Options "nosniff"
-Header set Referrer-Policy "strict-origin-when-cross-origin"
-Header unset X-Powered-By
-
-# Prevent directory listing
+# Prevent directory listing & server signature leak
 Options -Indexes
+ServerSignature Off
 
-# Protect sensitive files and internal directories
-RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
-<FilesMatch "^(config|database|\.env|composer\.(json|lock)|package\.json)">
-    Require all denied
+# Protect sensitive files, dotfiles, and internal directories
+RewriteRule ^(config|includes|database|tests|cron|docs|logs|backups)/ - [F,L]
+RewriteRule (^|/)\.(git|env|user\.ini) - [F,L]
+<FilesMatch "(^\.env|^\.git|^\.user\.ini|\.sql$|\.log$|\.bak$|^composer\.(json|lock)$|^package\.json$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=()"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'self'; base-uri 'self'; form-action 'self'"
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
+</IfModule>
 
 # PHP security (if not set in php.ini)
 php_flag display_errors Off
 php_flag log_errors On
 php_value session.cookie_secure 1
 php_value session.cookie_httponly 1
-php_value session.cookie_samesite Strict
+php_value session.cookie_samesite Lax
 php_value upload_max_filesize 10M
 php_value post_max_size 12M
 

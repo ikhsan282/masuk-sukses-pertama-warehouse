@@ -85,6 +85,16 @@ function p5_login(string $baseUrl, string $username, string $password, string $c
     return p5_http($baseUrl . '/auth/login.php', $payload, $cookieFile, false);
 }
 
+function p5_switch_company(string $baseUrl, int $companyId, string $cookieFile, bool $follow = true, string $seedPage = '/pages/dashboard.php'): array
+{
+    $p = p5_http($baseUrl . $seedPage, null, $cookieFile, false);
+    preg_match('/name="csrf_token"\s+value="([^"]+)"/', $p['body'], $m);
+    return p5_http($baseUrl . '/auth/switch-company.php', [
+        'csrf_token' => $m[1] ?? '',
+        'company_id' => $companyId,
+    ], $cookieFile, $follow);
+}
+
 function p5_build_import_xlsx(array $rows): string
 {
     $rowsXml = '';
@@ -251,15 +261,19 @@ try {
         $lSf = p5_login($baseUrl, 'staffgudang', 'P@ssw0rd', $sfCookie);
         p5_assert($lSa['code'] === 302 && stripos($lSa['headers'], 'dashboard.php') !== false, 'Super Admin login sukses ke dashboard.php');
 
-        // Switch company over live HTTP and assert flash renders bold <strong> without literal tags
-        $swRes = p5_http($baseUrl . '/auth/switch-company.php?id=2', null, $saCookie, true);
+        // Verify GET & missing-CSRF POST to switch-company.php are blocked, while POST+CSRF renders bold <strong>
+        $swGet = p5_http($baseUrl . '/auth/switch-company.php?id=2', null, $saCookie, false);
+        $swBad = p5_http($baseUrl . '/auth/switch-company.php', ['company_id' => 2], $saCookie, false);
+        $swRes = p5_switch_company($baseUrl, 2, $saCookie, true);
         p5_assert(
-            $swRes['code'] === 200
+            $swGet['code'] === 405
+            && $swBad['code'] === 403
+            && $swRes['code'] === 200
             && str_contains($swRes['body'], 'Beralih ke perusahaan: <strong>')
             && !str_contains($swRes['body'], '&lt;strong&gt;'),
-            'Switch company merender alert <strong>PT ...</strong> tanpa tag HTML bocor sebagai teks'
+            'Switch company menolak GET (405) / tanpa CSRF (403) dan POST+CSRF merender alert <strong>PT ...</strong> aman'
         );
-        p5_http($baseUrl . '/auth/switch-company.php?id=1', null, $saCookie, true);
+        p5_switch_company($baseUrl, 1, $saCookie, true);
 
         // Dashboard checks
         $dashRes = p5_http($baseUrl . '/pages/dashboard.php', null, $saCookie, false);
@@ -666,7 +680,9 @@ try {
             && str_contains($sfPortal['body'], 'id="darkToggle"')
             && str_contains($sfPortal['body'], 'prefers-color-scheme:dark')
             && str_contains($sfPortal['body'], '/pages/profile.php')
-            && str_contains($sfPortal['body'], 'switch-company.php?redirect=/pages/portal.php')
+            && str_contains($sfPortal['body'], '/auth/switch-company.php')
+            && str_contains($sfPortal['body'], 'name="redirect" value="/pages/portal.php"')
+            && str_contains($sfPortal['body'], 'name="csrf_token"')
             && str_contains($sfPortal['body'], '[SLN]')
             && !str_contains($sfPortal['body'], 'PT Prima Distribusi Mandiri')
             && !str_contains($vwPortal['body'], 'PT Sukses Logistik Nusantara')
@@ -735,6 +751,106 @@ try {
             (int)$idxCheck >= 1 && $lowParityOk,
             'Index audit_logs.idx_audit_created_id aktif & optimasi single-pass low_stock identik 100% di seluruh PT'
         );
+
+        // Security hardening checks: .htaccess/.htaccess.production, CSP headers, escape_like audit logs, hashed reset token + throttle + live session revocation
+        $secDbProbe = p5_http($baseUrl . '/database/schema.sql', null, $saCookie, false);
+        $secCfgProbe = p5_http($baseUrl . '/config/database.php', null, $saCookie, false);
+        $secEnvProbe = p5_http($baseUrl . '/.env', null, $saCookie, false);
+        $audIdxSrc = file_get_contents($root . '/pages/audit-logs/index.php');
+        $audExpSrc = file_get_contents($root . '/pages/audit-logs/export.php');
+        p5_assert(
+            $secDbProbe['code'] === 403
+            && $secCfgProbe['code'] === 403
+            && $secEnvProbe['code'] === 403
+            && stripos($saDash['headers'], 'Content-Security-Policy:') !== false
+            && str_contains($htaccessProd, '^(config|includes|database|tests|cron|docs|logs|backups)/')
+            && str_contains($htaccessProd, 'Content-Security-Policy')
+            && str_contains($htaccessProd, 'Header always set')
+            && str_contains($audIdxSrc, 'escape_like($search)')
+            && str_contains($audExpSrc, 'escape_like($search)'),
+            'Hardening .htaccess/.htaccess.production memblokir config/database/.env (HTTP 403), menyertakan CSP & escape_like pada audit log'
+        );
+
+        // Disposable security test user: remember-me -> forgot-password hash+rate-limit -> reset-password revokes session & remember token -> is_active=0 kicks session
+        $secUser = 'p5sec_' . substr(md5((string)microtime(true)), 0, 8);
+        $secEmail = $secUser . '@example.test';
+        $secPass1 = 'SecTest#1234';
+        $secPass2 = 'SecTest#5678';
+        $secHash1 = password_hash($secPass1, PASSWORD_BCRYPT, ['cost' => 12]);
+        $createdUsernames[] = $secUser;
+
+        $stSecIns = $db->prepare('INSERT INTO users (role_id, name, username, email, password, is_active, email_verified_at) VALUES (2, ?, ?, ?, ?, 1, NOW())');
+        $secDisplay = 'Security Probe User';
+        $stSecIns->bind_param('ssss', $secDisplay, $secUser, $secEmail, $secHash1);
+        $stSecIns->execute();
+        $secUid = (int)$db->insert_id;
+        $stSecIns->close();
+        $db->query("INSERT IGNORE INTO user_companies (user_id, company_id, is_default) VALUES ({$secUid}, 1, 1)");
+
+        $secCookie = tempnam(sys_get_temp_dir(), 'p5sec_');
+        $secLogin = p5_login($baseUrl, $secUser, $secPass1, $secCookie, true);
+        $rmCntBefore = (int)$db->query("SELECT COUNT(*) FROM user_remember_tokens WHERE user_id={$secUid}")->fetch_row()[0];
+
+        // Trigger forgot-password 4 times to test token hashing & 3-per-email rate limit
+        $fpGet = p5_http($baseUrl . '/auth/forgot-password.php', null, $secCookie, false); // logged in would redirect; use fresh anon cookie
+        $secAnonCookie = tempnam(sys_get_temp_dir(), 'p5fp_');
+        $fpPage = p5_http($baseUrl . '/auth/forgot-password.php', null, $secAnonCookie, false);
+        preg_match('/name="csrf_token"\s+value="([^"]+)"/', $fpPage['body'], $fpM);
+        $fpCsrf = $fpM[1] ?? '';
+        for ($rIdx = 0; $rIdx < 4; $rIdx++) {
+            p5_http($baseUrl . '/auth/forgot-password.php', ['csrf_token' => $fpCsrf, 'email' => $secEmail], $secAnonCookie, false);
+        }
+        $dbResetTok = (string)$db->query("SELECT COALESCE(reset_token, '') FROM users WHERE id={$secUid}")->fetch_row()[0];
+        $throttleCnt = (int)$db->query("SELECT COUNT(*) FROM audit_logs WHERE action='password_reset_throttled' AND description LIKE '%" . $db->real_escape_string($secEmail) . "%'")->fetch_row()[0];
+        p5_assert(
+            $secLogin['code'] === 302
+            && $rmCntBefore === 1
+            && (bool)preg_match('/^[a-f0-9]{64}$/', $dbResetTok)
+            && $throttleCnt >= 1,
+            'Reset token disimpan ter-hash SHA-256 (64 hex) & rate limit forgot-password membatasi spam (4x request)'
+        );
+
+        // Inject known raw reset token whose SHA-256 matches DB and reset password via live HTTP POST
+        $knownRawTok = bin2hex(random_bytes(32));
+        $knownTokHash = hash('sha256', $knownRawTok);
+        $stUpTok = $db->prepare('UPDATE users SET reset_token=?, reset_token_expires=DATE_ADD(NOW(), INTERVAL 1 HOUR) WHERE id=?');
+        $stUpTok->bind_param('si', $knownTokHash, $secUid);
+        $stUpTok->execute();
+        $stUpTok->close();
+
+        $rpGetBad  = p5_http($baseUrl . '/auth/reset-password.php?token=' . str_repeat('0', 64), null, $secAnonCookie, false);
+        $rpGetGood = p5_http($baseUrl . '/auth/reset-password.php?token=' . $knownRawTok, null, $secAnonCookie, false);
+        preg_match('/name="csrf_token"\s+value="([^"]+)"/', $rpGetGood['body'], $rpM);
+        $rpPost = p5_http($baseUrl . '/auth/reset-password.php', [
+            'csrf_token'       => $rpM[1] ?? '',
+            'token'            => $knownRawTok,
+            'password'         => $secPass2,
+            'confirm_password' => $secPass2,
+        ], $secAnonCookie, false);
+
+        $rmCntAfterReset = (int)$db->query("SELECT COUNT(*) FROM user_remember_tokens WHERE user_id={$secUid}")->fetch_row()[0];
+        $kickedAfterPwd = p5_http($baseUrl . '/pages/profile.php', null, $secCookie, false);
+
+        // Re-login with new password, then deactivate account and confirm live session is rejected immediately
+        $secCookie2 = tempnam(sys_get_temp_dir(), 'p5sec2_');
+        $secReLogin = p5_login($baseUrl, $secUser, $secPass2, $secCookie2, false);
+        $db->query("UPDATE users SET is_active=0 WHERE id={$secUid}");
+        $kickedAfterDisable = p5_http($baseUrl . '/pages/profile.php', null, $secCookie2, false);
+
+        p5_assert(
+            str_contains($rpGetBad['body'], 'tidak valid')
+            && $rpGetGood['code'] === 200 && str_contains($rpGetGood['body'], 'Reset Kata Sandi')
+            && str_contains($rpPost['body'], 'berhasil direset')
+            && $rmCntAfterReset === 0
+            && $kickedAfterPwd['code'] === 302 && stripos($kickedAfterPwd['headers'], 'login.php') !== false
+            && $secReLogin['code'] === 302
+            && $kickedAfterDisable['code'] === 302 && stripos($kickedAfterDisable['headers'], 'login.php') !== false,
+            'Reset password & penonaktifan akun mencabut remember-token dan langsung menghentikan sesi aktif di browser'
+        );
+
+        foreach ([$secCookie, $secAnonCookie, $secCookie2] as $sf) {
+            if (file_exists($sf)) @unlink($sf);
+        }
     }
 } finally {
     // Cleanup temporary test rows & files
@@ -765,12 +881,13 @@ try {
         $al->execute();
         $al->close();
     }
-    // Remove synthetic import / Phase 5 report export audit noise from this test run if needed
-    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%'");
+    // Remove synthetic import / Phase 5 report export & security probe audit/rate-limit noise from this test run
+    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%' OR action IN ('company.switch', 'session_revoked', 'session_invalidated', 'password_reset_throttled', 'password_reset_complete') AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
     $unitLike = '%' . $unitCode . '%';
     $cleanAudit->bind_param('s', $unitLike);
     $cleanAudit->execute();
     $cleanAudit->close();
+    $db->query("DELETE FROM login_attempts WHERE username_key LIKE 'pwd_reset:%' OR username_key = '__pwd_reset_ip__'");
 
     foreach ([$tmpXlsx, $saCookie, $vwCookie, $sfCookie, $t1Cookie, $t2Cookie, $bfCookie, $anCookie, $rmCookie] as $f) {
         if (is_string($f) && file_exists($f)) @unlink($f);

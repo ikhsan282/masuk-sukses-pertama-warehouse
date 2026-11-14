@@ -11,16 +11,8 @@ $done  = false;
 $error = '';
 $invalid = false;
 
-// Validate token exists
-if (!$token) { $invalid = true; }
-else {
-    $db = getDB();
-    $st = $db->prepare('SELECT id FROM users WHERE reset_token=? AND reset_token_expires > NOW() LIMIT 1');
-    $st->bind_param('s', $token);
-    $st->execute();
-    if (!$st->get_result()->fetch_assoc()) $invalid = true;
-    $st->close();
-}
+// Validate hashed token exists and has not expired
+$invalid = ($token === '' || auth_find_user_by_reset_token($token) === null);
 
 if (!$invalid && $_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();

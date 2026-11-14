@@ -49,7 +49,8 @@ function flash_html(): string {
 
 // Redirect
 function redirect(string $url): void {
-    header('Location: ' . $url);
+    $safeUrl = str_replace(["\r", "\n"], '', $url);
+    header('Location: ' . $safeUrl);
     exit;
 }
 
@@ -571,13 +572,15 @@ if (!function_exists('send_mail')) {
 
 // Email templates
 function email_template(string $title, string $body): string {
+    $appEsc   = htmlspecialchars((string)APP_NAME, ENT_QUOTES, 'UTF-8');
+    $titleEsc = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
     return '<!DOCTYPE html><html><head><meta charset="UTF-8">
     <style>body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px}
     .box{background:#fff;max-width:520px;margin:auto;padding:32px;border-radius:8px}
     .btn{display:inline-block;padding:12px 24px;background:#198754;color:#fff;text-decoration:none;border-radius:6px}
     h2{color:#1a1a2e}p{color:#444;line-height:1.6}</style></head>
-    <body><div class="box"><h2>' . APP_NAME . '</h2><h3>' . $title . '</h3>' . $body .
-    '<p style="margin-top:32px;font-size:12px;color:#999">&copy; ' . date('Y') . ' ' . APP_NAME . '</p>
+    <body><div class="box"><h2>' . $appEsc . '</h2><h3>' . $titleEsc . '</h3>' . $body .
+    '<p style="margin-top:32px;font-size:12px;color:#999">&copy; ' . date('Y') . ' ' . $appEsc . '</p>
     </div></body></html>';
 }
 

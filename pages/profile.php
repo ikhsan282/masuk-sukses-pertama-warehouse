@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($up->execute()) {
                     $up->close();
                     auth_revoke_all_remember_tokens($uid);
+                    sync_active_user_session();
                     session_regenerate_id(true);
                     audit_log('profile.password_change', 'user', $uid, (string)$row['username'], 'Mengubah kata sandi akun secara mandiri');
                     set_flash('success', 'Kata sandi berhasil diperbarui.');

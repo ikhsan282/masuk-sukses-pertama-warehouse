@@ -99,6 +99,20 @@ function uat_extract_csrf(string $html): ?string
     return null;
 }
 
+function uat_switch_company(string $baseUrl, int $companyId, string $cookieFile, bool $follow = false, string $seedPage = '/pages/dashboard.php', ?string $redirect = null): array
+{
+    $seed = uat_http($baseUrl . $seedPage, null, $cookieFile, false);
+    $csrf = uat_extract_csrf($seed['body']) ?? '';
+    $payload = [
+        'csrf_token' => $csrf,
+        'company_id' => $companyId,
+    ];
+    if ($redirect !== null) {
+        $payload['redirect'] = $redirect;
+    }
+    return uat_http($baseUrl . '/auth/switch-company.php', $payload, $cookieFile, $follow);
+}
+
 function uat_login(string $baseUrl, string $username, string $password, string $cookieFile): array
 {
     if (file_exists($cookieFile)) {
@@ -190,8 +204,8 @@ try {
     }
     uat_assert(empty($vBlocked), 'A2.3: Viewer ditolak (HTTP 403) di 7 modul tulis/admin/master', implode(', ', $vBlocked));
 
-    // Viewer cannot switch to SLN (company_id=2)
-    $vSwitchRes = uat_http($baseUrl . '/auth/switch-company.php?company_id=2', null, $viewerJar, true);
+    // Viewer cannot switch to SLN (company_id=2); extract CSRF from profile.php since single-PT portal hides switcher
+    $vSwitchRes = uat_switch_company($baseUrl, 2, $viewerJar, true, '/pages/profile.php', '/pages/portal.php');
     $vPortalAfter = uat_http($baseUrl . '/pages/portal.php', null, $viewerJar, false);
     uat_assert(
         str_contains($vSwitchRes['body'], 'Gagal beralih perusahaan')
@@ -225,10 +239,10 @@ try {
     uat_assert(empty($sBlocked), 'A3.3: Staff Gudang ditolak (HTTP 403) di companies, users, roles, po.approve, & opname.finalize', implode(', ', $sBlocked));
 
     // Staff Gudang switch to SLN succeeds, PDM rejected
-    uat_http($baseUrl . '/auth/switch-company.php?company_id=2', null, $staffJar, false);
+    uat_switch_company($baseUrl, 2, $staffJar, false, '/pages/portal.php');
     $sTransferSln = uat_http($baseUrl . '/pages/transfers/create.php', null, $staffJar, false);
     uat_assert(str_contains($sTransferSln['body'], 'SLN'), 'A3.4: Staff Gudang dapat berpindah ke PT SLN yang diizinkan');
-    $sSwitchPdm = uat_http($baseUrl . '/auth/switch-company.php?company_id=3', null, $staffJar, true);
+    $sSwitchPdm = uat_switch_company($baseUrl, 3, $staffJar, true, '/pages/portal.php');
     $sAfterPdm = uat_http($baseUrl . '/pages/portal.php', null, $staffJar, false);
     uat_assert(
         str_contains($sSwitchPdm['body'], 'Gagal beralih perusahaan')
@@ -294,7 +308,7 @@ try {
     $origSlnQty = uat_get_stock($db, 2, $itemId, $loc2);
 
     // B1. Switch to MSP (company_id=1)
-    uat_http($baseUrl . '/auth/switch-company.php?company_id=1', null, $saJar, false);
+    uat_switch_company($baseUrl, 1, $saJar, false);
     $dashMsp = uat_http($baseUrl . '/pages/dashboard.php', null, $saJar, false);
     uat_assert($dashMsp['code'] === 200 && str_contains($dashMsp['body'], 'MSP'), 'B1: Switch company ke PT MSP (id=1) aktif di topbar');
 
@@ -422,13 +436,13 @@ try {
     uat_assert($trGridMsp['code'] === 200 && $trRef !== '' && str_contains($trGridMsp['body'], $trRef) && str_contains($trGridMsp['body'], '>SLN<'),
         'B6.2: Filter toolbar transfers/index.php pada PT MSP menemukan transfer keluar (' . $trRef . ')');
 
-    uat_http($baseUrl . '/auth/switch-company.php?company_id=2', null, $saJar, false);
+    uat_switch_company($baseUrl, 2, $saJar, false);
     $trGridSln = uat_http($baseUrl . '/pages/transfers/index.php?q=' . urlencode($trRef) . '&date_from=' . date('Y-m-d') . '&date_to=' . date('Y-m-d'), null, $saJar, false);
     uat_assert($trGridSln['code'] === 200 && $trRef !== '' && str_contains($trGridSln['body'], $trRef) && str_contains($trGridSln['body'], '>MSP<'),
         'B6.3: Filter toolbar transfers/index.php pada PT SLN menemukan transfer masuk yang sama (' . $trRef . ')');
 
     // Switch back to MSP for Opname
-    uat_http($baseUrl . '/auth/switch-company.php?company_id=1', null, $saJar, false);
+    uat_switch_company($baseUrl, 1, $saJar, false);
 
     // B7. Stock Opname: Create -> Count (+1 variance) -> Finalize
     $opTag = '__UAT_OPNAME_' . uniqid() . '__';
