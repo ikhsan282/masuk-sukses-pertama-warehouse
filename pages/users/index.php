@@ -54,11 +54,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($auto_verify) {
                     audit_log('user.create', 'users', $new_uid, $username, "Menambah pengguna '{$username}' (langsung aktif/terverifikasi)");
-                    set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan dan langsung aktif.");
+                    set_flash('success', "Pengguna <strong>{$username}</strong> ditambahkan dan langsung aktif.");
                 } else {
                     $sent = send_verification_email($email, $name, $token);
                     audit_log('user.create', 'users', $new_uid, $username, "Menambah pengguna '{$username}' (menunggu verifikasi email)");
-                    set_flash('success',"Pengguna <strong>".htmlspecialchars($username)."</strong> ditambahkan." . ($sent ? ' Email verifikasi dikirim.' : ' Email belum terkirim; gunakan tombol Verifikasi di daftar pengguna jika perlu.'));
+                    set_flash('success', "Pengguna <strong>{$username}</strong> ditambahkan." . ($sent ? ' Email verifikasi dikirim.' : ' Email belum terkirim; gunakan tombol Verifikasi di daftar pengguna jika perlu.'));
                 }
             } else {
                 set_flash('error','Username atau email sudah digunakan.');

@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($st->execute()) {
             $new_item_id = (int)$db->insert_id;
             audit_log('item.create', 'item', $new_item_id, '', "Menambah barang: {$name}");
-            set_flash('success', "Barang <strong>" . htmlspecialchars($name) . "</strong> berhasil ditambahkan.");
+            set_flash('success', "Barang <strong>{$name}</strong> berhasil ditambahkan.");
             redirect(APP_URL . '/pages/items/index.php');
         } else {
             $errors[] = 'Kode barang sudah digunakan.';

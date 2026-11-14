@@ -40,7 +40,9 @@ function flash_html(): string {
     if (!$f) return '';
     $map = ['success' => 'success', 'error' => 'danger', 'warning' => 'warning', 'info' => 'info'];
     $cls = $map[$f['type']] ?? 'info';
-    $msg = htmlspecialchars($f['message']);
+    $msg = htmlspecialchars((string)$f['message'], ENT_QUOTES, 'UTF-8');
+    // Allow only balanced <strong>...</strong> emphasis while keeping all other HTML/XSS neutralized
+    $msg = preg_replace('/&lt;strong&gt;(.*?)&lt;\/strong&gt;/s', '<strong>$1</strong>', $msg) ?? $msg;
     return "<div class=\"alert alert-{$cls} alert-dismissible fade show\" role=\"alert\">{$msg}
         <button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\"></button></div>";
 }

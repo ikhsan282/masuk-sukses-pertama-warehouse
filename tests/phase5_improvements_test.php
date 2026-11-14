@@ -229,11 +229,31 @@ try {
             'Landing page (/) terupdate: Multi-PT, Audit Log, dark mode (#darkToggle + mw_theme), bebas link mati'
         );
 
+        // Flash HTML safety: balanced <strong> renders bold without double-escaping or XSS
+        set_flash('success', 'Beralih ke perusahaan: <strong>PT Maju & <script>alert(1)</script>Jaya</strong>');
+        $fHtml = flash_html();
+        p5_assert(
+            str_contains($fHtml, '<strong>PT Maju &amp; &lt;script&gt;alert(1)&lt;/script&gt;Jaya</strong>')
+            && !str_contains($fHtml, '&lt;strong&gt;')
+            && !str_contains($fHtml, '<script>'),
+            'flash_html() merender <strong> secara aman dan tetap menetralisir XSS/double-escape'
+        );
+
         // Log in Super Admin, Viewer, Staff Gudang
         $lSa = p5_login($baseUrl, 'superadmin', 'P@ssw0rd', $saCookie);
         $lVw = p5_login($baseUrl, 'viewer', 'P@ssw0rd', $vwCookie);
         $lSf = p5_login($baseUrl, 'staffgudang', 'P@ssw0rd', $sfCookie);
         p5_assert($lSa['code'] === 302 && stripos($lSa['headers'], 'dashboard.php') !== false, 'Super Admin login sukses ke dashboard.php');
+
+        // Switch company over live HTTP and assert flash renders bold <strong> without literal tags
+        $swRes = p5_http($baseUrl . '/auth/switch-company.php?id=2', null, $saCookie, true);
+        p5_assert(
+            $swRes['code'] === 200
+            && str_contains($swRes['body'], 'Beralih ke perusahaan: <strong>')
+            && !str_contains($swRes['body'], '&lt;strong&gt;'),
+            'Switch company merender alert <strong>PT ...</strong> tanpa tag HTML bocor sebagai teks'
+        );
+        p5_http($baseUrl . '/auth/switch-company.php?id=1', null, $saCookie, true);
 
         // Dashboard checks
         $dashRes = p5_http($baseUrl . '/pages/dashboard.php', null, $saCookie, false);

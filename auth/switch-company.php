@@ -16,7 +16,7 @@ if (!str_starts_with($redirect_to, APP_URL)) {
 
 if ($target_id > 0 && switch_company($target_id)) {
     $comp = current_company();
-    set_flash('success', 'Beralih ke perusahaan: <strong>' . htmlspecialchars($comp['name'] ?? '') . '</strong>');
+    set_flash('success', 'Beralih ke perusahaan: <strong>' . (string)($comp['name'] ?? '') . '</strong>');
 } else {
     set_flash('error', 'Gagal beralih perusahaan atau Anda tidak memiliki akses.');
 }
