@@ -70,15 +70,19 @@ function p5_http(string $url, $postData, string $cookieFile, bool $follow = fals
     return ['code' => $code, 'headers' => substr($raw, 0, $hs), 'body' => substr($raw, $hs), 'error' => ''];
 }
 
-function p5_login(string $baseUrl, string $username, string $password, string $cookieFile): array
+function p5_login(string $baseUrl, string $username, string $password, string $cookieFile, bool $remember = false): array
 {
     $lg = p5_http($baseUrl . '/auth/login.php', null, $cookieFile, false);
     preg_match('/name="csrf_token"\s+value="([^"]+)"/', $lg['body'], $m);
-    return p5_http($baseUrl . '/auth/login.php', [
+    $payload = [
         'csrf_token' => $m[1] ?? '',
         'username'   => $username,
         'password'   => $password,
-    ], $cookieFile, false);
+    ];
+    if ($remember) {
+        $payload['remember'] = '1';
+    }
+    return p5_http($baseUrl . '/auth/login.php', $payload, $cookieFile, false);
 }
 
 function p5_build_import_xlsx(array $rows): string
@@ -182,9 +186,11 @@ $t1Cookie = sys_get_temp_dir() . '/p5_t1_' . uniqid() . '.cookie';
 $t2Cookie = sys_get_temp_dir() . '/p5_t2_' . uniqid() . '.cookie';
 $bfCookie = sys_get_temp_dir() . '/p5_bf_' . uniqid() . '.cookie';
 $anCookie = sys_get_temp_dir() . '/p5_an_' . uniqid() . '.cookie';
+$rmCookie = sys_get_temp_dir() . '/p5_rm_' . uniqid() . '.cookie';
 
 $createdItemCodes = [];
 $createdUsernames = [];
+$pdmFixtures      = [];
 $auditRefTag      = 'P5-' . substr(bin2hex(random_bytes(3)), 0, 6);
 $unameAuto        = 'p5auto_' . strtolower(substr($auditRefTag, 3));
 $unameManual      = 'p5man_' . strtolower(substr($auditRefTag, 3));
@@ -452,9 +458,230 @@ try {
             && $auditXlsx['code'] === 200 && p5_zip_has_valid_sheet($auditXlsx['body']),
             'Export Audit Log ?format=pdf & ?format=excel valid'
         );
+
+        // ── 3. Five Improvement Points Checks (IDOR, Profile/Remember, PO Print/Opname Export, Stock/Users Export, Portal/Cron) ──
+        $supId = (int)$db->query('SELECT id FROM suppliers WHERE is_active=1 ORDER BY id LIMIT 1')->fetch_row()[0];
+        $locId = (int)$db->query('SELECT id FROM locations WHERE is_active=1 ORDER BY id LIMIT 1')->fetch_row()[0];
+        $itmId = (int)$db->query('SELECT id FROM items WHERE is_active=1 ORDER BY id LIMIT 1')->fetch_row()[0];
+        $admId = (int)$db->query('SELECT id FROM users ORDER BY id LIMIT 1')->fetch_row()[0];
+        $pdmTag = 'P5PDM-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+        $today = date('Y-m-d');
+
+        $stPoPdm = $db->prepare("INSERT INTO purchase_orders (reference_no, company_id, supplier_id, location_id, user_id, status, approval_status, order_date) VALUES (?, 3, ?, ?, ?, 'draft', 'draft', ?)");
+        $refPo = 'PO-PDM-' . $pdmTag;
+        $stPoPdm->bind_param('siiis', $refPo, $supId, $locId, $admId, $today);
+        $stPoPdm->execute();
+        $pdmPoId = (int)$db->insert_id;
+        $stPoPdm->close();
+        $pdmFixtures[] = ['purchase_orders', 'id', $pdmPoId];
+
+        $stSiPdm = $db->prepare('INSERT INTO stock_in (reference_no, company_id, supplier_id, location_id, user_id, transaction_date) VALUES (?, 3, ?, ?, ?, ?)');
+        $refSi = 'SI-PDM-' . $pdmTag;
+        $stSiPdm->bind_param('siiis', $refSi, $supId, $locId, $admId, $today);
+        $stSiPdm->execute();
+        $pdmSiId = (int)$db->insert_id;
+        $stSiPdm->close();
+        $pdmFixtures[] = ['stock_in', 'id', $pdmSiId];
+
+        $stSoPdm = $db->prepare('INSERT INTO stock_out (reference_no, company_id, location_id, user_id, transaction_date) VALUES (?, 3, ?, ?, ?)');
+        $refSo = 'SO-PDM-' . $pdmTag;
+        $stSoPdm->bind_param('siis', $refSo, $locId, $admId, $today);
+        $stSoPdm->execute();
+        $pdmSoId = (int)$db->insert_id;
+        $stSoPdm->close();
+        $pdmFixtures[] = ['stock_out', 'id', $pdmSoId];
+
+        $stTrPdm = $db->prepare('INSERT INTO transfers (reference_no, from_company_id, to_company_id, from_location_id, to_location_id, user_id, transaction_date) VALUES (?, 3, 3, ?, ?, ?, ?)');
+        $refTr = 'TR-PDM-' . $pdmTag;
+        $stTrPdm->bind_param('siiis', $refTr, $locId, $locId, $admId, $today);
+        $stTrPdm->execute();
+        $pdmTrId = (int)$db->insert_id;
+        $stTrPdm->close();
+        $pdmFixtures[] = ['transfers', 'id', $pdmTrId];
+
+        $stAdjPdm = $db->prepare("INSERT INTO stock_adjustments (reference_no, company_id, location_id, user_id, status, transaction_date) VALUES (?, 3, ?, ?, 'draft', ?)");
+        $refAdj = 'ADJ-PDM-' . $pdmTag;
+        $stAdjPdm->bind_param('siis', $refAdj, $locId, $admId, $today);
+        $stAdjPdm->execute();
+        $pdmAdjId = (int)$db->insert_id;
+        $stAdjPdm->close();
+        $pdmFixtures[] = ['stock_adjustments', 'id', $pdmAdjId];
+
+        $stSrPdm = $db->prepare("INSERT INTO supplier_returns (reference_no, company_id, supplier_id, location_id, user_id, reason, status, transaction_date) VALUES (?, 3, ?, ?, ?, 'Uji IDOR', 'cancelled', ?)");
+        $refSr = 'SR-PDM-' . $pdmTag;
+        $stSrPdm->bind_param('siiis', $refSr, $supId, $locId, $admId, $today);
+        $stSrPdm->execute();
+        $pdmSrId = (int)$db->insert_id;
+        $stSrPdm->close();
+        $pdmFixtures[] = ['supplier_returns', 'id', $pdmSrId];
+
+        $stOpPdm = $db->prepare("INSERT INTO stock_opname (company_id, opname_date, status, user_id, notes) VALUES (3, ?, 'draft', ?, 'Uji IDOR Opname')");
+        $stOpPdm->bind_param('si', $today, $admId);
+        $stOpPdm->execute();
+        $pdmOpId = (int)$db->insert_id;
+        $stOpPdm->close();
+        $pdmFixtures[] = ['stock_opname', 'session_id', $pdmOpId];
+
+        // Staff Gudang (MSP & SLN only) must get HTTP 403 across all PDM (company_id=3) endpoints
+        $idorPaths = [
+            "/pages/purchase-orders/view.php?id={$pdmPoId}",
+            "/pages/purchase-orders/print.php?id={$pdmPoId}",
+            "/pages/purchase-orders/form.php?id={$pdmPoId}",
+            "/pages/stock-in/view.php?id={$pdmSiId}",
+            "/pages/stock-in/print.php?id={$pdmSiId}",
+            "/pages/stock-out/view.php?id={$pdmSoId}",
+            "/pages/stock-out/print.php?id={$pdmSoId}",
+            "/pages/transfers/view.php?id={$pdmTrId}",
+            "/pages/transfers/print.php?id={$pdmTrId}",
+            "/pages/adjustments/view.php?id={$pdmAdjId}",
+            "/pages/supplier-returns/view.php?id={$pdmSrId}",
+            "/pages/stock-opname/count.php?id={$pdmOpId}",
+            "/pages/stock-opname/report.php?id={$pdmOpId}",
+            "/pages/stock-opname/report_export.php?id={$pdmOpId}&format=pdf",
+        ];
+        $idorFails = [];
+        foreach ($idorPaths as $ip) {
+            $resIdor = p5_http($baseUrl . $ip, null, $sfCookie, false);
+            if ($resIdor['code'] !== 403) {
+                $idorFails[] = "{$ip} (HTTP {$resIdor['code']})";
+            }
+        }
+        // Check POST company_id spoofing on stock-in/create.php
+        $siForm = p5_http($baseUrl . '/pages/stock-in/create.php', null, $sfCookie, false);
+        preg_match('/name="csrf_token"\s+value="([^"]+)"/', $siForm['body'], $mcSi);
+        $spoofPost = p5_http($baseUrl . '/pages/stock-in/create.php', [
+            'csrf_token'       => $mcSi[1] ?? '',
+            'company_id'       => 3,
+            'supplier_id'      => $supId,
+            'location_id'      => $locId,
+            'transaction_date' => $today,
+            'item_id'          => [$itmId],
+            'quantity'         => [1],
+            'buy_price'        => [1000],
+        ], $sfCookie, false);
+        if ($spoofPost['code'] !== 403) {
+            $idorFails[] = "POST /pages/stock-in/create.php?company_id=3 (HTTP {$spoofPost['code']})";
+        }
+        p5_assert(empty($idorFails), 'Multi-PT Isolation (Anti-IDOR): Staff MSP/SLN ditolak HTTP 403 di 15 endpoint PT PDM', implode(', ', $idorFails));
+
+        // Remember Me persistence & rotation + Logout revocation (on verified $unameManual, which is not locked by brute-force test)
+        $manUid = (int)$db->query("SELECT id FROM users WHERE username = '" . $db->real_escape_string($unameManual) . "'")->fetch_row()[0];
+        $rmLogin = p5_login($baseUrl, $unameManual, 'TestPass#123', $rmCookie, true);
+        $rmCount1 = (int)$db->query("SELECT COUNT(*) FROM user_remember_tokens WHERE user_id = {$manUid}")->fetch_row()[0];
+        $rmContent = file_exists($rmCookie) ? file_get_contents($rmCookie) : '';
+        $hasRemCookie = $rmContent !== false && str_contains($rmContent, 'msp_remember');
+        // Strip PHPSESSID from cookie jar to simulate new browser session with only msp_remember
+        if ($hasRemCookie) {
+            $filteredLines = array_filter(explode("\n", str_replace("\r\n", "\n", $rmContent)), fn($l) => !str_contains($l, 'PHPSESSID'));
+            file_put_contents($rmCookie, implode("\n", $filteredLines));
+        }
+        $rmAutoPortal = p5_http($baseUrl . '/pages/portal.php', null, $rmCookie, false);
+        p5_http($baseUrl . '/auth/logout.php', null, $rmCookie, false);
+        $rmCountAfterLogout = (int)$db->query("SELECT COUNT(*) FROM user_remember_tokens WHERE user_id = {$manUid}")->fetch_row()[0];
+        p5_assert(
+            $rmLogin['code'] === 302 && $rmCount1 === 1 && $hasRemCookie
+            && $rmAutoPortal['code'] === 200 && str_contains($rmAutoPortal['body'], 'Portal Gudang')
+            && $rmCountAfterLogout === 0,
+            'Ingat saya (remember=1) mengeluarkan token cookie DB, melakukan auto-login setelah PHPSESSID dihapus, dan terhapus saat logout',
+            "code={$rmLogin['code']}, cnt1={$rmCount1}, rem=" . ($hasRemCookie ? '1' : '0') . ", portal={$rmAutoPortal['code']}, after={$rmCountAfterLogout}"
+        );
+
+        // Self-service Profile & Change Password + Navbar link (on $t2Cookie for $unameManual)
+        $profGet = p5_http($baseUrl . '/pages/profile.php', null, $t2Cookie, false);
+        $dashBody = p5_http($baseUrl . '/pages/dashboard.php', null, $saCookie, false)['body'];
+        preg_match('/name="csrf_token"\s+value="([^"]+)"/', $profGet['body'], $mcProf);
+        $csrfProf = $mcProf[1] ?? '';
+        $newProfName = 'Updated ' . $auditRefTag;
+        $profNamePost = p5_http($baseUrl . '/pages/profile.php', [
+            'csrf_token' => $csrfProf,
+            'action'     => 'update_profile',
+            'name'       => $newProfName,
+        ], $t2Cookie, true);
+        preg_match('/name="csrf_token"\s+value="([^"]+)"/', $profNamePost['body'], $mcProf2);
+        $profPwdPost = p5_http($baseUrl . '/pages/profile.php', [
+            'csrf_token'       => $mcProf2[1] ?? $csrfProf,
+            'action'           => 'change_password',
+            'current_password' => 'TestPass#123',
+            'new_password'     => 'NewPass#456',
+            'confirm_password' => 'NewPass#456',
+        ], $t2Cookie, true);
+        $reloginCookie = sys_get_temp_dir() . '/p5_rl_' . uniqid() . '.cookie';
+        $oldPwdTry = p5_login($baseUrl, $unameManual, 'TestPass#123', $reloginCookie);
+        $newPwdTry = p5_login($baseUrl, $unameManual, 'NewPass#456', $reloginCookie);
+        @unlink($reloginCookie);
+        p5_assert(
+            $profGet['code'] === 200 && str_contains($dashBody, '/pages/profile.php')
+            && str_contains($profNamePost['body'], $newProfName)
+            && str_contains($profPwdPost['body'], 'Kata sandi berhasil diperbarui')
+            && $oldPwdTry['code'] === 200 && $newPwdTry['code'] === 302 && stripos($newPwdTry['headers'], 'portal.php') !== false,
+            'Self-service pages/profile.php sukses ubah nama (sync session), ubah kata sandi, dan tertaut di navbar',
+            "get={$profGet['code']}, old={$oldPwdTry['code']}, new={$newPwdTry['code']}"
+        );
+
+        // PO Official Print & Stock Opname Variance Export
+        $poView = p5_http($baseUrl . "/pages/purchase-orders/view.php?id={$pdmPoId}", null, $saCookie, false);
+        $poPrint = p5_http($baseUrl . "/pages/purchase-orders/print.php?id={$pdmPoId}", null, $saCookie, false);
+        $opRepUi = p5_http($baseUrl . "/pages/stock-opname/report.php?id={$pdmOpId}", null, $saCookie, false);
+        $opRepPdf = p5_http($baseUrl . "/pages/stock-opname/report_export.php?id={$pdmOpId}&format=pdf", null, $saCookie, false);
+        $opRepXlsx = p5_http($baseUrl . "/pages/stock-opname/report_export.php?id={$pdmOpId}&format=excel", null, $saCookie, false);
+        p5_assert(
+            str_contains($poView['body'], "print.php?id={$pdmPoId}")
+            && $poPrint['code'] === 200 && str_contains($poPrint['body'], 'PURCHASE ORDER (PO)')
+            && str_contains($opRepUi['body'], 'report_export.php')
+            && $opRepPdf['code'] === 200 && str_starts_with($opRepPdf['body'], '%PDF-1.4')
+            && $opRepXlsx['code'] === 200 && p5_zip_has_valid_sheet($opRepXlsx['body']),
+            'Cetak PO resmi (purchase-orders/print.php) & Export Variance Stock Opname PDF/Excel valid'
+        );
+
+        // Cek Stok, Peringatan Stok & Users PDF/Excel Exports (+ RBAC + no password leak)
+        $expPairs = [
+            'Cek Stok' => ['/pages/stock/index.php', '/pages/stock/export.php?mode=stock'],
+            'Peringatan Stok' => ['/pages/stock/alerts.php', '/pages/stock/export.php?mode=alerts'],
+            'Manajemen Pengguna' => ['/pages/users/index.php', '/pages/users/export.php?q='],
+        ];
+        foreach ($expPairs as $label => [$uiPath, $expBase]) {
+            $uiR = p5_http($baseUrl . $uiPath, null, $saCookie, false);
+            $sep = str_contains($expBase, '?') ? '&' : '?';
+            $pdfR = p5_http($baseUrl . $expBase . $sep . 'format=pdf', null, $saCookie, false);
+            $xlsR = p5_http($baseUrl . $expBase . $sep . 'format=excel', null, $saCookie, false);
+            p5_assert(
+                $uiR['code'] === 200 && str_contains($uiR['body'], 'Export PDF') && str_contains($uiR['body'], 'Export Excel')
+                && $pdfR['code'] === 200 && str_starts_with($pdfR['body'], '%PDF-1.4')
+                && $xlsR['code'] === 200 && p5_zip_has_valid_sheet($xlsR['body']),
+                "Export PDF & Excel {$label} terintegrasi dan menghasilkan PDF/XLSX valid"
+            );
+        }
+        $uCsv = p5_http($baseUrl . '/pages/users/export.php?format=csv', null, $saCookie, false);
+        $uVw  = p5_http($baseUrl . '/pages/users/export.php?format=csv', null, $vwCookie, false);
+        p5_assert(
+            $uCsv['code'] === 200 && !str_contains($uCsv['body'], '$2y$') && $uVw['code'] === 403,
+            'Users export bebas bocoran hash password dan menolak role Viewer (HTTP 403)'
+        );
+
+        // Portal Mobile PWA Multi-PT & Dark Mode + Windows Cron Alert Script
+        $sfPortal = p5_http($baseUrl . '/pages/portal.php', null, $sfCookie, false);
+        $vwPortal = p5_http($baseUrl . '/pages/portal.php', null, $vwCookie, false);
+        p5_assert(
+            $sfPortal['code'] === 200
+            && str_contains($sfPortal['body'], 'id="darkToggle"')
+            && str_contains($sfPortal['body'], 'prefers-color-scheme:dark')
+            && str_contains($sfPortal['body'], '/pages/profile.php')
+            && str_contains($sfPortal['body'], 'switch-company.php?redirect=/pages/portal.php')
+            && str_contains($sfPortal['body'], '[SLN]')
+            && !str_contains($sfPortal['body'], 'PT Prima Distribusi Mandiri')
+            && !str_contains($vwPortal['body'], 'PT Sukses Logistik Nusantara')
+            && file_exists($root . '/cron/low_stock_alert.ps1'),
+            'Portal Mobile PWA mendukung Multi-PT switcher scoped, prefers-color-scheme/darkToggle, link Profil & cron/low_stock_alert.ps1 tersedia'
+        );
     }
 } finally {
     // Cleanup temporary test rows & files
+    foreach (array_reverse($pdmFixtures) as [$tbl, $pkCol, $pkVal]) {
+        $stDel = $db->prepare("DELETE FROM `{$tbl}` WHERE `{$pkCol}` = ?");
+        $stDel->bind_param('i', $pkVal);
+        $stDel->execute();
+        $stDel->close();
+    }
     foreach ($createdItemCodes as $ic) {
         $st = $db->prepare('DELETE FROM items WHERE code = ?');
         $st->bind_param('s', $ic);
@@ -477,13 +704,13 @@ try {
         $al->close();
     }
     // Remove synthetic import / Phase 5 report export audit noise from this test run if needed
-    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%'");
+    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%'");
     $unitLike = '%' . $unitCode . '%';
     $cleanAudit->bind_param('s', $unitLike);
     $cleanAudit->execute();
     $cleanAudit->close();
 
-    foreach ([$tmpXlsx, $saCookie, $vwCookie, $sfCookie, $t1Cookie, $t2Cookie, $bfCookie, $anCookie] as $f) {
+    foreach ([$tmpXlsx, $saCookie, $vwCookie, $sfCookie, $t1Cookie, $t2Cookie, $bfCookie, $anCookie, $rmCookie] as $f) {
         if (is_string($f) && file_exists($f)) @unlink($f);
     }
 }

@@ -3,8 +3,154 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
 
-defined('LOGIN_MAX_ATTEMPTS')    || define('LOGIN_MAX_ATTEMPTS', 5);
-defined('LOGIN_LOCKOUT_SECONDS') || define('LOGIN_LOCKOUT_SECONDS', 300); // 5 minutes cooldown
+defined('LOGIN_MAX_ATTEMPTS')      || define('LOGIN_MAX_ATTEMPTS', 5);
+defined('LOGIN_LOCKOUT_SECONDS')   || define('LOGIN_LOCKOUT_SECONDS', 300); // 5 minutes cooldown
+defined('REMEMBER_COOKIE_NAME')    || define('REMEMBER_COOKIE_NAME', 'msp_remember');
+defined('REMEMBER_LIFETIME_DAYS')  || define('REMEMBER_LIFETIME_DAYS', 30);
+
+function _remember_cookie_options(int $expires): array {
+    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
+        || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+    return [
+        'expires'  => $expires,
+        'path'     => '/',
+        'secure'   => $is_https,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+}
+
+function remember_tokens_ensure_table(?mysqli $db = null): bool {
+    static $ready = false;
+    if ($ready) return true;
+    try {
+        $db = $db ?: getDB();
+        $db->query("CREATE TABLE IF NOT EXISTS `user_remember_tokens` (
+            `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `user_id` INT UNSIGNED NOT NULL,
+            `selector` CHAR(24) NOT NULL UNIQUE,
+            `token_hash` CHAR(64) NOT NULL,
+            `expires_at` DATETIME NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_remember_user_expires` (`user_id`, `expires_at`),
+            INDEX `idx_remember_expires` (`expires_at`),
+            FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $ready = true;
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function auth_issue_remember_token(int $user_id): void {
+    try {
+        $db = getDB();
+        if (!remember_tokens_ensure_table($db)) return;
+        $selector  = bin2hex(random_bytes(12));
+        $validator = bin2hex(random_bytes(32));
+        $hash      = hash('sha256', $validator);
+        $expiresAt = date('Y-m-d H:i:s', time() + (REMEMBER_LIFETIME_DAYS * 86400));
+
+        $st = $db->prepare('INSERT INTO user_remember_tokens (user_id, selector, token_hash, expires_at) VALUES (?, ?, ?, ?)');
+        if ($st) {
+            $st->bind_param('isss', $user_id, $selector, $hash, $expiresAt);
+            $st->execute();
+            $st->close();
+        }
+        $db->query('DELETE FROM user_remember_tokens WHERE expires_at < NOW()');
+        if (!headers_sent()) {
+            setcookie(REMEMBER_COOKIE_NAME, $selector . ':' . $validator, _remember_cookie_options(time() + (REMEMBER_LIFETIME_DAYS * 86400)));
+        }
+    } catch (Throwable $e) {}
+}
+
+function auth_revoke_remember_cookie(): void {
+    try {
+        $raw = (string)($_COOKIE[REMEMBER_COOKIE_NAME] ?? '');
+        if ($raw !== '' && strpos($raw, ':') !== false) {
+            [$selector] = explode(':', $raw, 2);
+            if (preg_match('/^[a-f0-9]{24}$/', $selector)) {
+                $db = getDB();
+                if (remember_tokens_ensure_table($db)) {
+                    $st = $db->prepare('DELETE FROM user_remember_tokens WHERE selector = ?');
+                    if ($st) {
+                        $st->bind_param('s', $selector);
+                        $st->execute();
+                        $st->close();
+                    }
+                }
+            }
+        }
+    } catch (Throwable $e) {}
+    unset($_COOKIE[REMEMBER_COOKIE_NAME]);
+    if (!headers_sent()) {
+        setcookie(REMEMBER_COOKIE_NAME, '', _remember_cookie_options(time() - 3600));
+    }
+}
+
+function auth_revoke_all_remember_tokens(int $user_id): void {
+    try {
+        $db = getDB();
+        if (!remember_tokens_ensure_table($db)) return;
+        $st = $db->prepare('DELETE FROM user_remember_tokens WHERE user_id = ?');
+        if ($st) {
+            $st->bind_param('i', $user_id);
+            $st->execute();
+            $st->close();
+        }
+    } catch (Throwable $e) {}
+}
+
+function auth_attempt_remember_login(): bool {
+    $raw = (string)($_COOKIE[REMEMBER_COOKIE_NAME] ?? '');
+    if ($raw === '' || strpos($raw, ':') === false) return false;
+    [$selector, $validator] = explode(':', $raw, 2);
+    if (!preg_match('/^[a-f0-9]{24}$/', $selector) || !preg_match('/^[a-f0-9]{64}$/', $validator)) {
+        auth_revoke_remember_cookie();
+        return false;
+    }
+    try {
+        $db = getDB();
+        if (!remember_tokens_ensure_table($db)) return false;
+        $st = $db->prepare('SELECT rt.user_id, rt.token_hash, u.username, u.is_active, u.email_verified_at
+            FROM user_remember_tokens rt
+            JOIN users u ON u.id = rt.user_id
+            WHERE rt.selector = ? AND rt.expires_at > NOW() LIMIT 1');
+        if (!$st) return false;
+        $st->bind_param('s', $selector);
+        $st->execute();
+        $row = $st->get_result()->fetch_assoc();
+        $st->close();
+
+        if (!$row || !hash_equals((string)$row['token_hash'], hash('sha256', $validator))) {
+            auth_revoke_remember_cookie();
+            return false;
+        }
+        if (empty($row['is_active']) || empty($row['email_verified_at'])) {
+            auth_revoke_all_remember_tokens((int)$row['user_id']);
+            auth_revoke_remember_cookie();
+            return false;
+        }
+
+        // Rotate remember token on successful consumption
+        $del = $db->prepare('DELETE FROM user_remember_tokens WHERE selector = ?');
+        if ($del) {
+            $del->bind_param('s', $selector);
+            $del->execute();
+            $del->close();
+        }
+
+        _load_session((int)$row['user_id']);
+        session_regenerate_id(true);
+        auth_issue_remember_token((int)$row['user_id']);
+        audit_log('login_remember', 'user', (int)$row['user_id'], '', 'Auto-login melalui Ingat saya', current_company_id(), (int)$row['user_id'], (string)$row['username']);
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
 
 function login_attempts_ensure_table(?mysqli $db = null): bool {
     static $ready = false;
@@ -78,7 +224,7 @@ function login_clear_failures(string $username_key, string $ip): void {
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
-function auth_login(string $username, string $password): bool {
+function auth_login(string $username, string $password, bool $remember = false): bool {
     $db  = getDB();
     $key = mb_strtolower(mb_substr(trim($username), 0, 120, 'UTF-8'), 'UTF-8');
     $ip  = mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
@@ -117,6 +263,9 @@ function auth_login(string $username, string $password): bool {
     login_clear_failures($key, $ip);
     _load_session($row['id']);
     session_regenerate_id(true);
+    if ($remember) {
+        auth_issue_remember_token((int)$row['id']);
+    }
     audit_log('login_success', 'user', (int)$row['id'], '', 'Login berhasil', current_company_id(), (int)$row['id'], (string)$row['username']);
     return true;
 }
@@ -274,17 +423,27 @@ function company_filter_select_html(string $name = 'company_id', string $selecte
 
 // ── Auth checks ────────────────────────────────────────────────────────────
 function auth_check(): void {
+    if (empty($_SESSION['user'])) {
+        auth_attempt_remember_login();
+    }
     if (empty($_SESSION['user'])) redirect(APP_URL . '/auth/login.php');
 }
 
 function auth_guest(): void {
-    if (!empty($_SESSION['user'])) redirect(APP_URL . '/pages/dashboard.php');
+    if (empty($_SESSION['user'])) {
+        auth_attempt_remember_login();
+    }
+    if (!empty($_SESSION['user'])) {
+        $role = $_SESSION['user']['role_name'] ?? '';
+        redirect(APP_URL . (in_array($role, ['Staff Gudang', 'Viewer'], true) ? '/pages/portal.php' : '/pages/dashboard.php'));
+    }
 }
 
 function auth_logout(): void {
     if (!empty($_SESSION['user']['id'])) {
         audit_log('logout', 'user', (int)$_SESSION['user']['id'], '', 'Logout dari sistem');
     }
+    auth_revoke_remember_cookie();
     $_SESSION = [];
     session_destroy();
 }
@@ -307,6 +466,53 @@ function require_perm(string $permission): void {
         include __DIR__ . '/../includes/footer.php';
         exit;
     }
+}
+
+/** Return allowed company IDs for the authenticated user. */
+function user_company_ids(): array {
+    return array_values(array_filter(array_map(fn($c) => (int)($c['id'] ?? 0), user_companies())));
+}
+
+/** Check whether the authenticated user holds access to a given company ID. */
+function user_has_company_access(int $company_id): bool {
+    return $company_id > 0 && in_array($company_id, user_company_ids(), true);
+}
+
+/**
+ * Require access to at least one of the specified company IDs or abort with HTTP 403.
+ *
+ * @param int[] $company_ids
+ * @param bool  $with_layout Render app navbar/layout when true; minimal standalone HTML when false.
+ */
+function require_any_company_access(array $company_ids, bool $with_layout = true): void {
+    auth_check();
+    foreach ($company_ids as $cid) {
+        if (user_has_company_access((int)$cid)) {
+            return;
+        }
+    }
+    if (!headers_sent()) {
+        http_response_code(403);
+    }
+    $msg = 'Anda tidak memiliki izin akses untuk perusahaan (PT) pada transaksi atau dokumen ini.';
+    if ($with_layout) {
+        include __DIR__ . '/../includes/header.php';
+        echo '<div class="container mt-5"><div class="alert alert-danger"><i class="bi bi-shield-exclamation me-2"></i>'
+            . htmlspecialchars($msg, ENT_QUOTES, 'UTF-8')
+            . '</div><a href="' . htmlspecialchars(APP_URL . '/pages/dashboard.php', ENT_QUOTES, 'UTF-8') . '" class="btn btn-outline-secondary btn-sm">Kembali ke Dashboard</a></div>';
+        include __DIR__ . '/../includes/footer.php';
+    } else {
+        echo '<!doctype html><html lang="id"><head><meta charset="utf-8"><title>403 Akses Ditolak</title></head>'
+            . '<body style="font:14px/1.5 Arial,sans-serif;margin:40px;color:#842029;background:#f8d7da;padding:16px;border-radius:6px">'
+            . '<strong>403 Akses Ditolak:</strong> ' . htmlspecialchars($msg, ENT_QUOTES, 'UTF-8')
+            . '</body></html>';
+    }
+    exit;
+}
+
+/** Require access to a specific company ID or abort with HTTP 403. */
+function require_company_access(int $company_id, bool $with_layout = true): void {
+    require_any_company_access([$company_id], $with_layout);
 }
 
 // ── Email verification ─────────────────────────────────────────────────────
@@ -378,5 +584,6 @@ function reset_password(string $token, string $new_password): bool {
     $st2->bind_param('si', $hash, $row['id']);
     $st2->execute();
     $st2->close();
+    auth_revoke_all_remember_tokens((int)$row['id']);
     return true;
 }

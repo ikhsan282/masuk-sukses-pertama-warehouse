@@ -14,6 +14,7 @@ $session_stmt->execute();
 $opname = $session_stmt->get_result()->fetch_assoc();
 $session_stmt->close();
 if (!$opname) { set_flash('error', 'Sesi stock opname tidak ditemukan.'); redirect(APP_URL . '/pages/stock-opname/index.php'); }
+require_company_access((int)$opname['company_id']);
 if ($opname['status'] !== 'draft') redirect(APP_URL . '/pages/stock-opname/report.php?id=' . $id);
 
 $errors = [];

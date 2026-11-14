@@ -19,6 +19,17 @@ if (!in_array($action, ['approve', 'reject'], true)) {
     redirect(APP_URL . '/pages/purchase-orders/index.php');
 }
 
+$chk = $db->prepare("SELECT id, company_id FROM purchase_orders WHERE id=?");
+$chk->bind_param('i', $id);
+$chk->execute();
+$chkRow = $chk->get_result()->fetch_assoc();
+$chk->close();
+if (!$chkRow) {
+    set_flash('error', 'Purchase order tidak ditemukan.');
+    redirect(APP_URL . '/pages/purchase-orders/index.php');
+}
+require_company_access((int)$chkRow['company_id']);
+
 $db->begin_transaction();
 try {
     $st = $db->prepare("SELECT id, reference_no, approval_status FROM purchase_orders WHERE id=? FOR UPDATE");

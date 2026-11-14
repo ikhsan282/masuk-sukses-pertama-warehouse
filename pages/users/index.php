@@ -213,6 +213,9 @@ $page_title='Manajemen Pengguna'; include __DIR__.'/../../includes/header.php';
       <?= grid_filter_search_html($search, 'Cari nama, username, email...') ?>
       <?= grid_filter_actions_html($pag['per_page'], (bool)$search, 'Cari', 'bi-search') ?>
     </form>
+    <div class="grid-toolbar-actions">
+      <?= report_export_dropdown_html(['q' => $search], 'export.php') ?>
+    </div>
   </div>
   <div class="table-responsive">
     <table class="table mb-0 align-middle">

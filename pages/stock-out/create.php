@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($valid_items)) $errors[] = 'Tambahkan minimal 1 barang dengan kuantitas > 0.';
 
     $company_id = req_int('company_id') ?: current_company_id();
+    require_company_access($company_id);
 
     // Check available stock per item at the selected source location for this company.
     if (empty($errors)) {

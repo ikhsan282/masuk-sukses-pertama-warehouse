@@ -9,6 +9,15 @@ $db = getDB();
 
 $id = req_int('id');
 
+$st = $db->prepare('SELECT sr.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name, c.code AS comp_code, c.name AS comp_name
+    FROM supplier_returns sr JOIN suppliers s ON s.id=sr.supplier_id
+    JOIN locations l ON l.id=sr.location_id JOIN users u ON u.id=sr.user_id
+    LEFT JOIN companies c ON c.id=sr.company_id WHERE sr.id=?');
+$st->bind_param('i',$id); $st->execute();
+$header = $st->get_result()->fetch_assoc(); $st->close();
+if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/supplier-returns/index.php'); }
+require_company_access((int)$header['company_id']);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel'])) {
     require_perm('supplier_returns.delete');
     verify_csrf();
@@ -21,14 +30,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel'])) {
         set_flash('error', 'Gagal membatalkan: '.$e->getMessage());
     }
 }
-
-$st = $db->prepare('SELECT sr.*, s.name AS supplier_name, l.name AS location_name, u.name AS user_name, c.code AS comp_code, c.name AS comp_name
-    FROM supplier_returns sr JOIN suppliers s ON s.id=sr.supplier_id
-    JOIN locations l ON l.id=sr.location_id JOIN users u ON u.id=sr.user_id
-    LEFT JOIN companies c ON c.id=sr.company_id WHERE sr.id=?');
-$st->bind_param('i',$id); $st->execute();
-$header = $st->get_result()->fetch_assoc(); $st->close();
-if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/supplier-returns/index.php'); }
 
 $st2 = $db->prepare('SELECT d.*, i.code AS item_code, i.name AS item_name, u.abbreviation
     FROM supplier_return_details d JOIN items i ON i.id=d.item_id JOIN units u ON u.id=i.unit_id

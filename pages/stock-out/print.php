@@ -17,6 +17,7 @@ $st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name,
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-out/index.php'); }
+require_company_access((int)$header['company_id'], false);
 
 $comp_name = $header['company_name'] ?: COMPANY_NAME;
 $comp_addr = $header['company_address'] ?: COMPANY_ADDRESS;

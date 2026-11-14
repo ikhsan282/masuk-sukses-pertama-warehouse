@@ -17,6 +17,7 @@ $st = $db->prepare('SELECT a.*, l.name AS loc_name, l.code AS loc_code, u.name A
 $st->bind_param('i', $id); $st->execute();
 $adj = $st->get_result()->fetch_assoc(); $st->close();
 if (!$adj) { set_flash('error', 'Penyesuaian stok tidak ditemukan.'); redirect(APP_URL . '/pages/adjustments/index.php'); }
+require_company_access((int)$adj['company_id']);
 
 $dt = $db->prepare('SELECT d.*, i.code AS item_code, i.name AS item_name, u.abbreviation
     FROM stock_adjustment_details d

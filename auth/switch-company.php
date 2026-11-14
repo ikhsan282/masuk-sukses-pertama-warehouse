@@ -7,7 +7,12 @@ require_once __DIR__ . '/../includes/auth.php';
 auth_check();
 
 $target_id = req_int('company_id') ?: req_int('id');
-$redirect_to = $_SERVER['HTTP_REFERER'] ?? (APP_URL . '/pages/dashboard.php');
+$requested_redirect = trim(req_str('redirect'));
+if ($requested_redirect !== '' && str_starts_with($requested_redirect, '/') && !str_starts_with($requested_redirect, '//')) {
+    $redirect_to = APP_URL . $requested_redirect;
+} else {
+    $redirect_to = $_SERVER['HTTP_REFERER'] ?? (APP_URL . '/pages/dashboard.php');
+}
 
 // Prevent redirecting outside application
 if (!str_starts_with($redirect_to, APP_URL)) {

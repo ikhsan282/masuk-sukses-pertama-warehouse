@@ -35,7 +35,7 @@ $expectedTables = [
     'stock_adjustments', 'stock_adjustment_details',
     'purchase_orders', 'purchase_order_details',
     'supplier_returns', 'supplier_return_details', 'mutations',
-    'login_attempts', 'audit_logs',
+    'login_attempts', 'audit_logs', 'user_remember_tokens',
 ];
 
 $requiredIndexes = [
@@ -113,6 +113,10 @@ $requiredIndexes = [
         'idx_audit_comp_created'   => ['company_id', 'created_at', 'id'],
         'idx_audit_action_created' => ['action', 'created_at', 'id'],
         'idx_audit_user_created'   => ['user_id', 'created_at', 'id'],
+    ],
+    'user_remember_tokens' => [
+        'idx_remember_user_expires' => ['user_id', 'expires_at'],
+        'idx_remember_expires'      => ['expires_at'],
     ],
 ];
 
@@ -201,6 +205,17 @@ $tableDdl = [
         INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`),
         FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE SET NULL,
         FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    'user_remember_tokens' => "CREATE TABLE IF NOT EXISTS `user_remember_tokens` (
+        `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        `user_id` INT UNSIGNED NOT NULL,
+        `selector` CHAR(24) NOT NULL UNIQUE,
+        `token_hash` CHAR(64) NOT NULL,
+        `expires_at` DATETIME NOT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_remember_user_expires` (`user_id`, `expires_at`),
+        INDEX `idx_remember_expires` (`expires_at`),
+        FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 

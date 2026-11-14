@@ -13,6 +13,7 @@ $st->execute();
 $po = $st->get_result()->fetch_assoc();
 $st->close();
 if (!$po) { set_flash('error', 'Purchase order tidak ditemukan.'); redirect(APP_URL . '/pages/purchase-orders/index.php'); }
+require_company_access((int)$po['company_id']);
 if ($po['approval_status'] !== 'approved') { set_flash('error', 'Hanya PO yang sudah diapprove yang dapat diterima.'); redirect(APP_URL . '/pages/purchase-orders/view.php?id=' . $id); }
 if (!in_array($po['status'], ['pending', 'partial'], true)) { set_flash('error', 'PO sudah selesai atau tidak dapat diterima.'); redirect(APP_URL . '/pages/purchase-orders/view.php?id=' . $id); }
 

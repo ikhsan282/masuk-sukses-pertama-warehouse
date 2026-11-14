@@ -23,6 +23,7 @@ if (!$po) {
     set_flash('error', 'Purchase order tidak ditemukan.');
     redirect(APP_URL . '/pages/purchase-orders/index.php');
 }
+require_company_access((int)$po['company_id']);
 $det = $db->prepare('SELECT d.*,i.code,i.name FROM purchase_order_details d JOIN items i ON i.id=d.item_id WHERE d.po_id=? ORDER BY i.name');
 $det->bind_param('i', $id);
 $det->execute();
@@ -45,6 +46,9 @@ include __DIR__ . '/../../includes/header.php';
   <div class="d-flex justify-content-between align-items-center">
     <h4><i class="bi bi-cart-check me-2 text-primary"></i><?= e($po['reference_no']) ?></h4>
     <div class="d-flex gap-2">
+      <a href="print.php?id=<?= $po['id'] ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-printer me-1"></i>Cetak PO
+      </a>
       <?php if (in_array($po['status'], ['pending', 'partial'], true) && $po['approval_status'] === 'approved' && can('purchase_orders.receive')): ?>
         <a href="receive-form.php?id=<?= $po['id'] ?>" class="btn btn-sm btn-success">
           <i class="bi bi-box-arrow-in-down me-1"></i>Terima Barang

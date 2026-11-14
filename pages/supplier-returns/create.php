@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         $user_id = current_user()['id'];
         $company_id = req_int('company_id') ?: current_company_id();
+        require_company_access($company_id);
         try {
             $return_id = create_supplier_return($db, $supplier_id, $location_id, $user_id, $trans_date, $reason, $notes, $valid_items, $company_id);
             $st = $db->prepare('SELECT reference_no FROM supplier_returns WHERE id=?');

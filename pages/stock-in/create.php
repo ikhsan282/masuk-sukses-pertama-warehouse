@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         $company_id = req_int('company_id') ?: current_company_id();
+        require_company_access($company_id);
         $ref_no     = generate_ref('SI-', $company_id);
         $user_id    = current_user()['id'];
 

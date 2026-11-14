@@ -14,6 +14,7 @@ $head->execute();
 $opname = $head->get_result()->fetch_assoc();
 $head->close();
 if (!$opname) { set_flash('error', 'Sesi stock opname tidak ditemukan.'); redirect(APP_URL . '/pages/stock-opname/index.php'); }
+require_company_access((int)$opname['company_id']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_perm('stock_opname.finalize');
@@ -68,7 +69,10 @@ include __DIR__ . '/../../includes/header.php';
     <h4><i class="bi bi-clipboard-data me-2 text-primary"></i>Laporan Variance #<?= $id ?></h4>
     <div class="small text-muted"><?= tgl($opname['opname_date']) ?> &middot; <?= e($opname['user_name']) ?></div>
   </div>
-  <span class="badge <?= $opname['status'] === 'finalized' ? 'bg-success' : 'bg-warning text-dark' ?> fs-6"><?= $opname['status'] === 'finalized' ? 'Finalized' : 'Draft' ?></span>
+  <div class="d-flex align-items-center gap-2">
+    <?= report_export_dropdown_html(['id' => $id], 'report_export.php') ?>
+    <span class="badge <?= $opname['status'] === 'finalized' ? 'bg-success' : 'bg-warning text-dark' ?> fs-6"><?= $opname['status'] === 'finalized' ? 'Finalized' : 'Draft' ?></span>
+  </div>
 </div>
 
 <div class="row g-3 mb-3">

@@ -116,6 +116,9 @@ $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
       </select>
       <?= grid_filter_actions_html($pag['per_page'], (bool)($search || $loc_filter || isset($_GET['company_id']))) ?>
     </form>
+    <div class="grid-toolbar-actions">
+      <?= report_export_dropdown_html(['mode' => 'stock', 'company_id' => $cf['param_value'], 'q' => $search, 'location_id' => $loc_filter ?: ''], 'export.php') ?>
+    </div>
   </div>
   <div class="table-responsive">
     <table class="table mb-0">

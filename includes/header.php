@@ -109,6 +109,8 @@ if ($current_user && can('stock.alerts')) {
           <ul class="dropdown-menu dropdown-menu-end shadow-sm">
             <li><span class="dropdown-item-text small text-muted"><?= htmlspecialchars($current_user['email']) ?></span></li>
             <li><hr class="dropdown-divider my-1"></li>
+            <li><a class="dropdown-item" href="<?= APP_URL ?>/pages/profile.php"><i class="bi bi-person-gear me-2"></i>Profil & Kata Sandi</a></li>
+            <li><hr class="dropdown-divider my-1"></li>
             <li><a class="dropdown-item" href="<?= APP_URL ?>/auth/logout.php"><i class="bi bi-box-arrow-right me-2"></i>Keluar</a></li>
           </ul>
         </div>

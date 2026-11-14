@@ -11,9 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $username = req_str('username');
     $password = req_str('password');
+    $remember = !empty($_POST['remember']);
     if (!$username || !$password) {
         $error = 'Username dan kata sandi wajib diisi.';
-    } elseif (auth_login($username, $password)) {
+    } elseif (auth_login($username, $password, $remember)) {
         $role = $_SESSION['user']['role_name'] ?? '';
         redirect(APP_URL . (in_array($role, ['Staff Gudang', 'Viewer'], true) ? '/pages/portal.php' : '/pages/dashboard.php'));
     } else {
@@ -58,7 +59,7 @@ auth_layout_start('Masuk');
       </div>
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="remember">
+          <input class="form-check-input" type="checkbox" name="remember" value="1" id="remember"<?= !empty($_POST['remember']) ? ' checked' : '' ?>>
           <label class="form-check-label small" for="remember">Ingat saya</label>
         </div>
         <a href="<?= APP_URL ?>/auth/forgot-password.php" class="small text-primary text-decoration-none">Lupa kata sandi?</a>

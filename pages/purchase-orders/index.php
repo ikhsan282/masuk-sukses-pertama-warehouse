@@ -9,6 +9,16 @@ $db = getDB();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $id = req_int('id'); $action = req_str('action');
+    if ($id > 0) {
+        $chk = $db->prepare('SELECT company_id FROM purchase_orders WHERE id=?');
+        $chk->bind_param('i', $id);
+        $chk->execute();
+        $chkRow = $chk->get_result()->fetch_assoc();
+        $chk->close();
+        if ($chkRow) {
+            require_company_access((int)$chkRow['company_id']);
+        }
+    }
     if ($action === 'order' && can('purchase_orders.edit')) {
         $st=$db->prepare("UPDATE purchase_orders SET status='pending', approval_status='pending' WHERE id=? AND status='draft'");
         $st->bind_param('i',$id); $st->execute(); $ok=$st->affected_rows; $st->close();

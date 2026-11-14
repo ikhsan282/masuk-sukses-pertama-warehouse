@@ -13,6 +13,7 @@ $st = $db->prepare('SELECT so.*, l.name AS location_name, u.name AS user_name, c
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-out/index.php'); }
+require_company_access((int)$header['company_id']);
 
 $st2 = $db->prepare('SELECT d.*, i.code AS item_code, i.name AS item_name, u.abbreviation
     FROM stock_out_details d JOIN items i ON i.id=d.item_id JOIN units u ON u.id=i.unit_id

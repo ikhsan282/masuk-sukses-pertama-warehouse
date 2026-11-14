@@ -14,6 +14,7 @@ $st = $db->prepare('SELECT si.location_id, si.company_id, si.reference_no FROM s
 $st->bind_param('i',$id); $st->execute();
 $header = $st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/stock-in/index.php'); }
+require_company_access((int)$header['company_id']);
 
 $st2 = $db->prepare('SELECT item_id, quantity FROM stock_in_details WHERE stock_in_id=?');
 $st2->bind_param('i',$id); $st2->execute();

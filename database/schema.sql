@@ -453,6 +453,19 @@ CREATE TABLE `audit_logs` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
+-- Persistent Login Remember-Me Tokens
+CREATE TABLE `user_remember_tokens` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT UNSIGNED NOT NULL,
+  `selector` CHAR(24) NOT NULL UNIQUE,
+  `token_hash` CHAR(64) NOT NULL,
+  `expires_at` DATETIME NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_remember_user_expires` (`user_id`, `expires_at`),
+  INDEX `idx_remember_expires` (`expires_at`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- ── Performance Indexes ──────────────────────────────────────────────────────
 ALTER TABLE `mutations`
   ADD INDEX `idx_mutations_company_id` (`company_id`),

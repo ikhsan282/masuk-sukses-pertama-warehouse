@@ -14,6 +14,10 @@ $st=$db->prepare('SELECT from_location_id, to_location_id, from_company_id, to_c
 $st->bind_param('i',$id); $st->execute();
 $header=$st->get_result()->fetch_assoc(); $st->close();
 if (!$header) { set_flash('error','Data tidak ditemukan.'); redirect(APP_URL.'/pages/transfers/index.php'); }
+require_company_access((int)$header['from_company_id']);
+if ((int)$header['to_company_id'] !== (int)$header['from_company_id']) {
+    require_company_access((int)$header['to_company_id']);
+}
 
 $st2=$db->prepare('SELECT item_id, quantity FROM transfer_details WHERE transfer_id=?');
 $st2->bind_param('i',$id); $st2->execute();

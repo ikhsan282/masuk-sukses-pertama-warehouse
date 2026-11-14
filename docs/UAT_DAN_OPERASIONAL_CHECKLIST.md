@@ -22,9 +22,9 @@ Jalankan seluruh pemeriksaan berikut dari root direktori aplikasi sebelum membuk
    php cron/verify_production_db.php --apply-missing
    ```
    Output wajib berstatus **`[PASS]`** dengan:
-   - `29` tabel inti berengine **InnoDB** dan charset **utf8mb4** (termasuk `login_attempts` dan `audit_logs`).
+   - `30` tabel inti berengine **InnoDB** dan charset **utf8mb4** (termasuk `login_attempts`, `audit_logs`, dan `user_remember_tokens`).
    - Entitas PT default aktif (`MSP`, `SLN`, `PDM`) dan `4` role inti (`Super Admin`, `Admin`, `Staff Gudang`, `Viewer`).
-   - `45/45` composite & lookup indexes pada `15` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, dan index `audit_logs`).
+   - `47/47` composite & lookup indexes pada `16` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, index `audit_logs`, dan index `user_remember_tokens`).
 
 3. **Verifikasi Proteksi Direktori Backup over HTTP**
    - Uji akses URL `<APP_URL>/backups/` melalui browser/curl. Server wajib mengembalikan HTTP **`403 Forbidden`**.
@@ -44,6 +44,11 @@ powershell -ExecutionPolicy Bypass -File cron/backup_db.ps1
 Daftarkan pada **Windows Task Scheduler** agar berjalan otomatis setiap hari pukul `02:00`:
 ```powershell
 schtasks /Create /TN "MSP Warehouse Daily DB Backup" /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\xampp\htdocs\masuk-sukses-pertama-warehouse\cron\backup_db.ps1" /SC DAILY /ST 02:00 /F
+```
+
+Untuk notifikasi otomatis peringatan stok menipis (`cron/low_stock_alert.ps1`) setiap hari pukul `08:00`:
+```powershell
+schtasks /Create /TN "MSP Warehouse Daily Low Stock Alert" /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\xampp\htdocs\masuk-sukses-pertama-warehouse\cron\low_stock_alert.ps1 -AdminEmail admin@mspgrup.co.id" /SC DAILY /ST 08:00 /F
 ```
 
 ### B. Linux / cPanel (`cron/backup_db.sh`)
