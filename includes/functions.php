@@ -799,3 +799,48 @@ function delete_item_image(?string $image): void {
         @unlink($path);
     }
 }
+
+/** Emit pre-paint script to initialize data-bs-theme from mw_theme or OS preference. */
+function theme_prepaint_script(): string {
+    return "<script>(function(){try{var t=localStorage.getItem('mw_theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-bs-theme',t);}catch(e){}})();</script>\n";
+}
+
+/** Emit inline script binding #darkToggle icon state, click persistence, and OS theme changes. */
+function theme_toggle_script(): string {
+    return <<<'HTML'
+<script>
+(function () {
+  var btn = document.getElementById('darkToggle');
+  function syncThemeUI() {
+    var dark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    if (btn) {
+      var icon = btn.querySelector('i');
+      if (icon) icon.className = dark ? 'bi bi-sun' : 'bi bi-moon-stars';
+      btn.title = dark ? 'Beralih ke mode terang' : 'Beralih ke mode gelap';
+      btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+    }
+  }
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-bs-theme', next);
+      try { localStorage.setItem('mw_theme', next); } catch (e) {}
+      syncThemeUI();
+    });
+  }
+  try {
+    var mq = matchMedia('(prefers-color-scheme:dark)');
+    if (mq && mq.addEventListener) {
+      mq.addEventListener('change', function (ev) {
+        if (!localStorage.getItem('mw_theme')) {
+          document.documentElement.setAttribute('data-bs-theme', ev.matches ? 'dark' : 'light');
+          syncThemeUI();
+        }
+      });
+    }
+  } catch (e) {}
+  syncThemeUI();
+})();
+</script>
+HTML;
+}

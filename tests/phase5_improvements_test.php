@@ -217,6 +217,18 @@ try {
         }
         p5_assert($authPagesOk, 'Seluruh halaman auth (login, forgot, reset, verify) mendukung dark mode (mw_theme + #darkToggle + CSS)');
 
+        // Landing page (/) modern layout, multi-PT stats, dark mode toggle & no dead href="#"
+        $landRes = p5_http($baseUrl . '/', null, $anCookie, false);
+        p5_assert(
+            $landRes['code'] === 200
+            && str_contains($landRes['body'], "localStorage.getItem('mw_theme')")
+            && str_contains($landRes['body'], 'id="darkToggle"')
+            && str_contains($landRes['body'], 'Multi-PT')
+            && str_contains($landRes['body'], 'Audit Log')
+            && !str_contains($landRes['body'], 'href="#"'),
+            'Landing page (/) terupdate: Multi-PT, Audit Log, dark mode (#darkToggle + mw_theme), bebas link mati'
+        );
+
         // Log in Super Admin, Viewer, Staff Gudang
         $lSa = p5_login($baseUrl, 'superadmin', 'P@ssw0rd', $saCookie);
         $lVw = p5_login($baseUrl, 'viewer', 'P@ssw0rd', $vwCookie);
