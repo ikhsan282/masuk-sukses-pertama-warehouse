@@ -22,6 +22,8 @@ if (!extension_loaded('curl') || !extension_loaded('mysqli') || !extension_loade
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/captcha.php';
 require_once __DIR__ . '/../includes/export.php';
 require_once __DIR__ . '/../includes/item-import.php';
 
@@ -70,7 +72,7 @@ function p5_http(string $url, $postData, string $cookieFile, bool $follow = fals
     return ['code' => $code, 'headers' => substr($raw, 0, $hs), 'body' => substr($raw, $hs), 'error' => ''];
 }
 
-function p5_login(string $baseUrl, string $username, string $password, string $cookieFile, bool $remember = false): array
+function p5_login(string $baseUrl, string $username, string $password, string $cookieFile, bool $remember = false, ?string $captcha = null): array
 {
     $lg = p5_http($baseUrl . '/auth/login.php', null, $cookieFile, false);
     preg_match('/name="csrf_token"\s+value="([^"]+)"/', $lg['body'], $m);
@@ -81,6 +83,9 @@ function p5_login(string $baseUrl, string $username, string $password, string $c
     ];
     if ($remember) {
         $payload['remember'] = '1';
+    }
+    if ($captcha !== null) {
+        $payload['captcha'] = $captcha;
     }
     return p5_http($baseUrl . '/auth/login.php', $payload, $cookieFile, false);
 }
@@ -187,6 +192,31 @@ $xlsxBin  = p5_build_import_xlsx([
 file_put_contents($tmpXlsx, $xlsxBin);
 $parsedXlsx = item_import_read($tmpXlsx, 'xlsx');
 p5_assert(count($parsedXlsx) === 2 && ($parsedXlsx[1][0] ?? '') === $unitCode, 'item_import_read(.xlsx) mem-parsing OOXML tanpa perlu ext-zip');
+
+// Verify pure-PHP PNG numeric CAPTCHA unit engine & one-time session verification
+$capLightPng = captcha_render_png('12345', 180, 54, false);
+$capDarkPng  = captcha_render_png('67890', 180, 54, true);
+$ihdrDims    = strlen($capLightPng) >= 24 ? unpack('Nwidth/Nheight', substr($capLightPng, 16, 8)) : [];
+$capUnitOk   = str_starts_with($capLightPng, "\x89PNG\r\n\x1a\n")
+    && str_starts_with($capDarkPng, "\x89PNG\r\n\x1a\n")
+    && ($ihdrDims['width'] ?? 0) === 180 && ($ihdrDims['height'] ?? 0) === 54
+    && str_contains($capLightPng, 'IDAT') && str_contains($capLightPng, 'IEND')
+    && $capLightPng !== $capDarkPng;
+if (session_status() === PHP_SESSION_ACTIVE) {
+    $issuedCap = captcha_issue_challenge(5);
+    $capUnitOk = $capUnitOk
+        && preg_match('/^\d{5}$/', $issuedCap) === 1
+        && !captcha_verify('00000x')
+        && !captcha_verify($issuedCap); // consumed by previous failed verification (one-time)
+    $issuedCap2 = captcha_issue_challenge(5);
+    $capUnitOk = $capUnitOk
+        && captcha_verify($issuedCap2)
+        && !captcha_verify($issuedCap2); // replay blocked
+    $_SESSION['login_captcha'] = ['salt' => 'exp', 'hash' => hash('sha256', 'exp:12345'), 'expires_at' => time() - 10];
+    $capUnitOk = $capUnitOk && !captcha_verify('12345');
+    captcha_clear();
+}
+p5_assert($capUnitOk, 'Pure-PHP CAPTCHA menghasilkan PNG 24-bit valid (terang/gelap) & verifikasi one-time + kedaluwarsa berjalan benar');
 
 // ── 2. Live HTTP Suite ────────────────────────────────────────────────────────
 $saCookie = sys_get_temp_dir() . '/p5_sa_' . uniqid() . '.cookie';
@@ -403,9 +433,38 @@ try {
             'Tombol 1-klik verify_user mengaktifkan akun sehingga user langsung dapat login'
         );
 
-        // Brute-force lockout test on isolated $unameAuto (5 failures -> 6th returns 429)
-        for ($att = 1; $att <= 5; $att++) {
-            p5_login($baseUrl, $unameAuto, 'WrongPass!' . $att, $bfCookie);
+        // Adaptive Numeric Image CAPTCHA + Brute-force lockout test on isolated $unameAuto
+        $capCleanGet = p5_http($baseUrl . '/auth/login.php', null, $bfCookie, false);
+        $fail1Res    = p5_login($baseUrl, $unameAuto, 'WrongPass!1', $bfCookie);
+        $fail2Res    = p5_login($baseUrl, $unameAuto, 'WrongPass!2', $bfCookie);
+        $capPngRes   = p5_http($baseUrl . '/auth/captcha.php?v=1', null, $bfCookie, false);
+        $capWrongTry = p5_login($baseUrl, $unameAuto, 'TestPass#123', $bfCookie, false, '99999');
+
+        p5_assert(
+            !str_contains($capCleanGet['body'], 'auth/captcha.php')
+            && !str_contains($fail1Res['body'], 'auth/captcha.php')
+            && str_contains($fail2Res['body'], 'auth/captcha.php')
+            && str_contains($fail2Res['body'], 'name="captcha"')
+            && $capPngRes['code'] === 200
+            && stripos($capPngRes['headers'], 'Content-Type: image/png') !== false
+            && stripos($capPngRes['headers'], 'no-store') !== false
+            && str_starts_with($capPngRes['body'], "\x89PNG\r\n\x1a\n")
+            && $capWrongTry['code'] === 200
+            && str_contains($capWrongTry['body'], 'CAPTCHA'),
+            'Adaptive Numeric Image CAPTCHA tersembunyi di awal, aktif setelah 2 gagal login, mengirim image/png & menolak sandi benar jika CAPTCHA salah'
+        );
+
+        // Lengkapi 5 kegagalan password pada IP aktual dari request Apache agar lockout HTTP 429 teruji end-to-end
+        $stIpRow = $db->prepare('SELECT ip_address FROM login_attempts WHERE username_key = ? ORDER BY id DESC LIMIT 1');
+        $unameKey = login_normalize_key($unameAuto);
+        $stIpRow->bind_param('s', $unameKey);
+        $stIpRow->execute();
+        $stIpRow->bind_result($bfClientIp);
+        $stIpRow->fetch();
+        $stIpRow->close();
+        $bfClientIp = $bfClientIp ?: '127.0.0.1';
+        for ($att = 3; $att <= 5; $att++) {
+            login_record_failure($unameKey, $bfClientIp);
         }
         $lockedRes = p5_login($baseUrl, $unameAuto, 'TestPass#123', $bfCookie);
         p5_assert(
@@ -882,7 +941,7 @@ try {
         $al->close();
     }
     // Remove synthetic import / Phase 5 report export & security probe audit/rate-limit noise from this test run
-    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%' OR action IN ('company.switch', 'session_revoked', 'session_invalidated', 'password_reset_throttled', 'password_reset_complete') AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
+    $cleanAudit = $db->prepare("DELETE FROM audit_logs WHERE description LIKE ? OR description LIKE '%Ban Test Phase 5 XLSX%' OR reference_no LIKE 'PO-PDM-P5PDM-%' OR description LIKE '%P5PDM-%' OR action IN ('company.switch', 'session_revoked', 'session_invalidated', 'login_captcha_failed', 'password_reset_throttled', 'password_reset_complete') AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
     $unitLike = '%' . $unitCode . '%';
     $cleanAudit->bind_param('s', $unitLike);
     $cleanAudit->execute();

@@ -485,6 +485,27 @@ html[data-bs-theme=dark] .auth-card .form-check-input:checked {
   background-color: var(--accent);
   border-color: var(--accent);
 }
+.auth-captcha-box {
+  background: var(--surface-muted, #f8fafc);
+  border: 1px solid var(--border-color, #dee2e6);
+  border-radius: .75rem;
+  padding: .75rem;
+}
+.auth-captcha-img {
+  width: 180px;
+  height: 54px;
+  border-radius: .5rem;
+  border: 1px solid var(--border-color, #cbd5e1);
+  display: block;
+  user-select: none;
+}
+html[data-bs-theme=dark] .auth-captcha-box {
+  background: #151f1b;
+  border-color: var(--border-color);
+}
+html[data-bs-theme=dark] .auth-captcha-img {
+  border-color: var(--border-color);
+}
 
 /* ── Badges / status ────────────────────────────────────── */
 .badge-low  { background: #fff3cd; color: #856404; }

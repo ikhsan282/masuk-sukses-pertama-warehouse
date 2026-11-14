@@ -28,7 +28,7 @@ $params  = [$df_ts, $dt_ts];
 $types   = 'ss';
 
 $group_map = [
-    'auth'        => ['login_success', 'login_failed', 'login_locked', 'login_blocked', 'login_unverified', 'login_remember', 'logout', 'session_revoked', 'session_invalidated', 'password_reset_throttled', 'password_reset_complete', 'company.switch'],
+    'auth'        => ['login_success', 'login_failed', 'login_captcha_failed', 'login_locked', 'login_blocked', 'login_unverified', 'login_remember', 'logout', 'session_revoked', 'session_invalidated', 'password_reset_throttled', 'password_reset_complete', 'company.switch'],
     'master'      => ['item.create', 'item.update', 'item.delete', 'items.import', 'user.create', 'user.update', 'user.delete', 'user.verify', 'role.permissions'],
     'transaction' => ['stock_in.create', 'stock_in.delete', 'stock_out.create', 'stock_out.delete', 'transfer.create', 'transfer.delete', 'supplier_return.create'],
     'approval'    => ['po.approve', 'po.reject', 'po.receive', 'adjustment.create', 'adjustment.approve', 'stock_opname.create', 'stock_opname.finalize'],

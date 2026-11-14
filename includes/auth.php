@@ -2,9 +2,11 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/captcha.php';
 
 defined('LOGIN_MAX_ATTEMPTS')      || define('LOGIN_MAX_ATTEMPTS', 5);
 defined('LOGIN_LOCKOUT_SECONDS')   || define('LOGIN_LOCKOUT_SECONDS', 300); // 5 minutes cooldown
+defined('LOGIN_CAPTCHA_THRESHOLD') || define('LOGIN_CAPTCHA_THRESHOLD', 2); // Adaptive CAPTCHA setelah 2 gagal
 defined('REMEMBER_COOKIE_NAME')    || define('REMEMBER_COOKIE_NAME', 'msp_remember');
 defined('REMEMBER_LIFETIME_DAYS')  || define('REMEMBER_LIFETIME_DAYS', 30);
 
@@ -171,6 +173,55 @@ function login_attempts_ensure_table(?mysqli $db = null): bool {
     }
 }
 
+function login_normalize_key(string $username): string {
+    return mb_strtolower(mb_substr(trim($username), 0, 120, 'UTF-8'), 'UTF-8');
+}
+
+function login_client_ip(): string {
+    return mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
+}
+
+function login_recent_failure_count(string $username_key, string $ip): int {
+    try {
+        $db = getDB();
+        if (!login_attempts_ensure_table($db)) return 0;
+        $window = (int)LOGIN_LOCKOUT_SECONDS;
+        $st = $db->prepare('SELECT COUNT(*) FROM login_attempts WHERE username_key=? AND ip_address=? AND attempted_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        if (!$st) return 0;
+        $st->bind_param('ssi', $username_key, $ip, $window);
+        $st->execute();
+        $st->bind_result($cnt);
+        $st->fetch();
+        $st->close();
+        return (int)$cnt;
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function login_requires_captcha(string $username = ''): bool {
+    if ((int)($_SESSION['login_fail_count'] ?? 0) >= LOGIN_CAPTCHA_THRESHOLD) {
+        return true;
+    }
+    $key = login_normalize_key($username);
+    if ($key !== '' && login_recent_failure_count($key, login_client_ip()) >= LOGIN_CAPTCHA_THRESHOLD) {
+        return true;
+    }
+    return false;
+}
+
+function login_handle_lockout(string $key, string $ip): bool {
+    $waitSec = login_remaining_lockout_seconds($key, $ip);
+    if ($waitSec <= 0) {
+        return false;
+    }
+    $mins = max(1, (int)ceil($waitSec / 60));
+    set_flash('error', "Terlalu banyak percobaan masuk gagal. Silakan coba lagi dalam {$mins} menit.");
+    if (!headers_sent()) http_response_code(429);
+    audit_log('login_locked', 'user', null, '', "Akun '{$key}' diblokir sementara ({$waitSec} detik) dari IP {$ip}", null, null, $key);
+    return true;
+}
+
 function login_remaining_lockout_seconds(string $username_key, string $ip): int {
     try {
         $db = getDB();
@@ -226,15 +277,10 @@ function login_clear_failures(string $username_key, string $ip): void {
 // ── Login ──────────────────────────────────────────────────────────────────
 function auth_login(string $username, string $password, bool $remember = false): bool {
     $db  = getDB();
-    $key = mb_strtolower(mb_substr(trim($username), 0, 120, 'UTF-8'), 'UTF-8');
-    $ip  = mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'), 0, 45, 'UTF-8');
+    $key = login_normalize_key($username);
+    $ip  = login_client_ip();
 
-    $waitSec = login_remaining_lockout_seconds($key, $ip);
-    if ($waitSec > 0) {
-        $mins = max(1, (int)ceil($waitSec / 60));
-        set_flash('error', "Terlalu banyak percobaan masuk gagal. Silakan coba lagi dalam {$mins} menit.");
-        if (!headers_sent()) http_response_code(429);
-        audit_log('login_locked', 'user', null, '', "Akun '{$key}' diblokir sementara ({$waitSec} detik) dari IP {$ip}", null, null, $key);
+    if (login_handle_lockout($key, $ip)) {
         return false;
     }
 
@@ -246,6 +292,7 @@ function auth_login(string $username, string $password, bool $remember = false):
 
     if (!$row || !password_verify($password, $row['password'])) {
         login_record_failure($key, $ip);
+        $_SESSION['login_fail_count'] = (int)($_SESSION['login_fail_count'] ?? 0) + 1;
         audit_log('login_failed', 'user', $row['id'] ?? null, '', "Percobaan masuk gagal untuk '{$key}'", null, $row['id'] ?? null, $key);
         return false;
     }
@@ -260,6 +307,8 @@ function auth_login(string $username, string $password, bool $remember = false):
         return false;
     }
 
+    $_SESSION['login_fail_count'] = 0;
+    captcha_clear();
     login_clear_failures($key, $ip);
     _load_session($row['id']);
     session_regenerate_id(true);

@@ -234,11 +234,11 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 - ✅ `master_export_test.php`: **Passed (31 / 31)**
 - ✅ `multi_company_test.php`: **Passed (29 / 29)**
 - ✅ `partial_receive_test.php`: **Passed (20 / 20)**
-- ✅ `phase5_improvements_test.php`: **Passed (53 / 53)**
+- ✅ `phase5_improvements_test.php`: **Passed (55 / 55)**
 - ✅ `stock_opname_test.php`: **Passed (14 / 14)**
 - ✅ `supplier_returns_test.php`: **Passed (20 / 20)**
 - ✅ `uat_roles_workflow_test.php`: **Passed (31 / 31)**
-- **Total: 327 Pengecekan / Assertions Lulus 100% tanpa regresi.**
+- **Total: 329 Pengecekan / Assertions Lulus 100% tanpa regresi.**
 
 ### Skrip Penjadwalan (*Cron / Task Scheduler*)
 - **Windows Backup Harian (02:00)**: `powershell -ExecutionPolicy Bypass -File cron/backup_db.ps1`
@@ -252,7 +252,7 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 1. **SQL Injection Prevention**: 100% query database menggunakan MySQLi prepared statements dengan parameter binding (`bind_param`).
 2. **Multi-PT Isolation (Anti-IDOR)**: Validasi kepemilikan `company_id` pada seluruh endpoint transaksi, cetak dokumen, export laporan, serta POST spoofing lintas perusahaan.
 3. **Password Hashing & Proteksi Token**: Password di-hash `PASSWORD_BCRYPT` (`cost => 12`), sedangkan token *Ingat saya* (`selector:validator`), `reset_token`, dan `verification_token` disimpan sebagai hash SHA-256 dengan pencabutan menyeluruh saat logout/ubah sandi/reset sandi/nonaktif akun.
-4. **Brute-Force, Rate-Limit & Audit Trail**: Pembatasan 5 kali percobaan gagal masuk (`HTTP 429` selama 5 menit), pembatasan frekuensi permintaan *lupa kata sandi* per IP/email, serta pencatatan seluruh aktivitas & security event ke `audit_logs`.
+4. **Brute-Force, Adaptive Numeric Image CAPTCHA, Rate-Limit & Audit Trail**: Pembatasan 5 kali percobaan gagal masuk (`HTTP 429` selama 5 menit), **Adaptive Numeric Image CAPTCHA** pure-PHP PNG ([`auth/captcha.php`](auth/captcha.php) & [`includes/captcha.php`](includes/captcha.php)) yang tersembunyi pada kondisi normal dan aktif otomatis setelah 2 kali gagal login (tantangan sekali pakai ter-hash SHA-256 + penolakan cache `no-store`), pembatasan frekuensi permintaan *lupa kata sandi* per IP/email, serta pencatatan seluruh aktivitas & security event (`login_captcha_failed`, `login_locked`, dll.) ke `audit_logs`.
 5. **CSRF, XSS & Email Hardening**: Token CSRF unik per sesi pada seluruh aksi `POST` termasuk perpindahan perusahaan (`auth/switch-company.php`), output & body email di-escape `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`, filter pencarian memakai `escape_like()`, dan export CSV/XLSX disanitasi terhadap injeksi formula (CWE-1236).
 6. **Session Validation, RBAC & Security Headers**: Cookie sesi memakai `HttpOnly`, `SameSite=Lax`, otorisasi berbasis izin (`require_perm()`), validasi sesi aktif real-time (`auth_validate_active_session()` untuk nonaktif/ganti sandi/perubahan izin peran), serta proteksi direktori sensitif & `Content-Security-Policy` di [`.htaccess`](.htaccess) dan [`.htaccess.production`](.htaccess.production).
 7. **Optimasi Performa End-to-End**:
