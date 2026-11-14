@@ -37,6 +37,15 @@ html[data-bs-theme=dark] .card-header,
 html[data-bs-theme=dark] .card-footer,
 html[data-bs-theme=dark] .dropdown-menu { background: var(--surface-muted) !important; color: var(--text-primary); border-color: var(--border-color) !important; }
 html[data-bs-theme=dark] .table thead th { background: var(--surface-muted); color: var(--text-primary); }
+html[data-bs-theme=dark] .table-light {
+  --bs-table-bg: var(--surface-muted);
+  --bs-table-color: var(--text-primary);
+  --bs-table-border-color: var(--border-color);
+  --bs-table-striped-bg: var(--surface-muted);
+  --bs-table-hover-bg: rgba(255,255,255,.04);
+  background-color: var(--surface-muted) !important;
+  color: var(--text-primary) !important;
+}
 html[data-bs-theme=dark] .modal-content { background-color: var(--card-bg); border-color: var(--border-color); color: var(--text-primary); }
 html[data-bs-theme=dark] .modal-header,
 html[data-bs-theme=dark] .modal-footer { border-color: var(--border-color); }

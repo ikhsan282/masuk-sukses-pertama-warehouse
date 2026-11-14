@@ -467,7 +467,9 @@ ALTER TABLE `stock`
 
 ALTER TABLE `transfers`
   ADD INDEX `idx_transfers_from_comp_id` (`from_company_id`, `id`),
-  ADD INDEX `idx_transfers_to_comp_id` (`to_company_id`, `id`);
+  ADD INDEX `idx_transfers_to_comp_id` (`to_company_id`, `id`),
+  ADD INDEX `idx_transfers_from_comp_date_id` (`from_company_id`, `transaction_date`, `id`),
+  ADD INDEX `idx_transfers_to_comp_date_id` (`to_company_id`, `transaction_date`, `id`);
 
 ALTER TABLE `stock_adjustments`
   ADD INDEX `idx_adjustments_comp_id` (`company_id`, `id`);

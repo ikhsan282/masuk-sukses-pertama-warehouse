@@ -12,7 +12,8 @@ Header unset X-Powered-By
 # Prevent directory listing
 Options -Indexes
 
-# Protect sensitive files
+# Protect sensitive files and internal directories
+RewriteRule ^(tests|cron|docs|logs|backups)/ - [F,L]
 <FilesMatch "^(config|database|\.env|composer\.(json|lock)|package\.json)">
     Require all denied
 </FilesMatch>

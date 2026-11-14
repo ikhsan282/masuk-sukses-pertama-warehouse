@@ -1,0 +1,9 @@
+# Local environment overrides, backups & runtime logs
+.env
+config/*.local.php
+backups/*.sql
+backups/*.sql.gz
+backups/*.zip
+logs/*.log
+*.bak
+*.tmp

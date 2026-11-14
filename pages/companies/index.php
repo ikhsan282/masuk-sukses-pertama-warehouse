@@ -168,7 +168,7 @@ include __DIR__ . '/../../includes/header.php';
           <td class="small text-muted"><?= $pag['offset'] + $i + 1 ?></td>
           <td><span class="badge bg-primary-subtle text-primary border"><?= htmlspecialchars($r['code']) ?></span></td>
           <td>
-            <div class="fw-bold text-dark"><?= htmlspecialchars($r['name']) ?></div>
+            <div class="fw-bold"><?= htmlspecialchars($r['name']) ?></div>
           </td>
           <td class="small">
             <?php if (!empty($r['phone'])): ?><div><i class="bi bi-telephone text-muted me-1"></i><?= htmlspecialchars($r['phone']) ?></div><?php endif; ?>

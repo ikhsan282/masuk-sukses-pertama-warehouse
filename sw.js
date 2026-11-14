@@ -1,9 +1,10 @@
 // Masuk Sukses Pertama Warehouse Service Worker
-const CACHE_VERSION = 'msp-wh-v2';
-const OFFLINE_URL = '/masuk-sukses-pertama-warehouse/offline.html';
+const BASE_PATH = self.location.pathname.replace(/\/sw\.js$/, '');
+const CACHE_VERSION = 'msp-wh-v3';
+const OFFLINE_URL = `${BASE_PATH}/offline.html`;
 
 const STATIC_ASSETS = [
-  '/masuk-sukses-pertama-warehouse/offline.html'
+  OFFLINE_URL
 ];
 
 // Install: cache static assets
