@@ -141,6 +141,16 @@ function grid_apply_timeout(mysqli $db, float $seconds = 10.0): void {
     }
 }
 
+/**
+ * Release PHP session file lock before read-only heavy queries or file exports
+ * so concurrent requests/tabs from the same user are never blocked.
+ */
+function release_session_lock(): void {
+    if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+}
+
 // Build XSS-safe and sprintf-crash-safe pagination URL
 function grid_page_url(array $query_params, int $page): string {
     $clean = [];
@@ -733,7 +743,8 @@ function audit_logs_ensure_table(?mysqli $db = null): bool {
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX `idx_audit_comp_created` (`company_id`, `created_at`, `id`),
             INDEX `idx_audit_action_created` (`action`, `created_at`, `id`),
-            INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`)
+            INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`),
+            INDEX `idx_audit_created_id` (`created_at`, `id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         $checked = true;
         return true;

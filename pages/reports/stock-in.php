@@ -29,13 +29,15 @@ $t2=$types.'ii';$p2=$params;$p2[]=&$limit;$p2[]=&$offset;
 
 $st=$db->prepare("SELECT si.id, si.reference_no, si.transaction_date, s.name AS supplier_name,
     l.name AS location_name, u.name AS user_name, comp.code AS comp_code,
-    (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS item_count,
-    (SELECT SUM(d.quantity) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_qty,
-    (SELECT SUM(d.quantity*d.buy_price) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_value
+    COUNT(d.id) AS item_count,
+    COALESCE(SUM(d.quantity), 0) AS total_qty,
+    COALESCE(SUM(d.quantity*d.buy_price), 0) AS total_value
     FROM (SELECT si.id FROM stock_in si $where ORDER BY si.transaction_date DESC, si.id DESC LIMIT ? OFFSET ?) pg
     JOIN stock_in si ON si.id=pg.id
     JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
     JOIN users u ON u.id=si.user_id LEFT JOIN companies comp ON comp.id=si.company_id
+    LEFT JOIN stock_in_details d ON d.stock_in_id=si.id
+    GROUP BY si.id, si.reference_no, si.transaction_date, s.name, l.name, u.name, comp.code
     ORDER BY si.transaction_date DESC, si.id DESC");
 $st->bind_param($t2,...$p2);$st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC);$st->close();

@@ -71,7 +71,7 @@ C:\xampp\htdocs\masuk-sukses-pertama-warehouse\
 ```
 
 ### 2. Import Database Tunggal
-Database dikemas menjadi **satu file installer mandiri** yang berisi struktur `30` tabel inti, `47` index performa, serta data dummy riil operasional PT Masuk Sukses Pertama:
+Database dikemas menjadi **satu file installer mandiri** yang berisi struktur `30` tabel inti, `48` index performa, serta data dummy riil operasional PT Masuk Sukses Pertama:
 - **Lokasi File**: [`database/schema.sql`](database/schema.sql)
 - **Cara Import via Command Prompt / PowerShell**:
   ```powershell
@@ -178,7 +178,7 @@ masuk-sukses-pertama-warehouse/
 │   ├── users/                      # Manajemen akun, multi-PT, auto_verify, verify_user + export
 │   └── roles/                      # Editor matriks permission RBAC per peran
 ├── cron/
-│   ├── verify_production_db.php    # CLI pemeriksa/migrasi 30 tabel InnoDB & 47 index produksi
+│   ├── verify_production_db.php    # CLI pemeriksa/migrasi 30 tabel InnoDB & 48 index produksi
 │   ├── backup_db.ps1               # Backup database otomatis harian + ZIP (Windows Task Scheduler)
 │   ├── backup_db.sh                # Backup database otomatis harian + gzip (Linux cron)
 │   ├── low_stock_alert.ps1         # Pengirim email peringatan stok menipis (Windows Task Scheduler)
@@ -191,7 +191,7 @@ masuk-sukses-pertama-warehouse/
 │   ├── js/app.js                   # Interaksi dinamis, kalkulasi live, dan scanner
 │   └── vendor/html5-qrcode/        # Library pemindai barcode lokal tanpa CDN
 ├── database/
-│   └── schema.sql                  # Skema database terpadu (30 tabel + 47 index + data dummy riil)
+│   └── schema.sql                  # Skema database terpadu (30 tabel + 48 index + data dummy riil)
 └── tests/                          # 13 suite pengujian otomatis PHP native (zero PHPUnit)
     ├── dropdown_overflow_test.php  # Verifikasi TomSelect dropdownParent & overflow fix
     ├── feature_self_check.php      # Pemeriksaan integritas fitur & DDL dasar
@@ -234,11 +234,11 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 - ✅ `master_export_test.php`: **Passed (31 / 31)**
 - ✅ `multi_company_test.php`: **Passed (29 / 29)**
 - ✅ `partial_receive_test.php`: **Passed (20 / 20)**
-- ✅ `phase5_improvements_test.php`: **Passed (47 / 47)**
+- ✅ `phase5_improvements_test.php`: **Passed (50 / 50)**
 - ✅ `stock_opname_test.php`: **Passed (14 / 14)**
 - ✅ `supplier_returns_test.php`: **Passed (20 / 20)**
 - ✅ `uat_roles_workflow_test.php`: **Passed (31 / 31)**
-- **Total: 321 Pengecekan / Assertions Lulus 100% tanpa regresi.**
+- **Total: 324 Pengecekan / Assertions Lulus 100% tanpa regresi.**
 
 ### Skrip Penjadwalan (*Cron / Task Scheduler*)
 - **Windows Backup Harian (02:00)**: `powershell -ExecutionPolicy Bypass -File cron/backup_db.ps1`
@@ -255,6 +255,10 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 4. **Brute-Force Protection & Audit Trail**: Pembatasan 5 kali percobaan gagal masuk (`HTTP 429` selama 5 menit) serta pencatatan seluruh aktivitas penting & security event ke `audit_logs`.
 5. **CSRF & XSS Protection**: Token CSRF unik per sesi pada setiap aksi POST (`verify_csrf()`), output di-escape dengan `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`, dan seluruh export CSV/XLSX disanitasi terhadap injeksi formula (CWE-1236).
 6. **Session Hardening & Granular RBAC**: Cookie sesi memakai `HttpOnly`, `SameSite=Lax`, serta otorisasi berbasis izin (`require_perm()`) di tingkat endpoint.
+7. **Optimasi Performa End-to-End**:
+   - **Frontend**: `html5-qrcode.min.js` (~375 KB) dimuat kondisional hanya pada halaman dengan modal scanner, serta `dns-prefetch` & `preconnect` ke `https://cdn.jsdelivr.net`.
+   - **Database & Query**: Filter tanggal `audit_logs` memakai perbandingan rentang *SARGable* (`idx_audit_created_id`), penghapusan *correlated subqueries* serta penggabungan query agregasi satu pass (*single-pass*) pada Dashboard, Stok, Peringatan Stok, serta Laporan Masuk/Keluar (*deferred join*).
+   - **Konkurensi & HTTP**: `release_session_lock()` (`session_write_close()`) dipanggil sebelum export PDF/XLSX/CSV & pencarian JSON agar tab lain tidak terblokir, ditambah kompresi `mod_deflate` dan cache header `mod_expires` pada [`.htaccess`](.htaccess) dan [`.htaccess.production`](.htaccess.production).
 
 ---
 
@@ -262,7 +266,7 @@ Hasil verifikasi penuh (`0` gagal di seluruh suite):
 
 1. Unggah seluruh file ke folder `public_html/` atau subdomain target, dan gunakan [`.htaccess.production`](.htaccess.production) sesuai kebutuhan HTTPS produksi.
 2. Buat file `.env` (berdasarkan [`.env.example`](.env.example)) atau `config/config.local.php` untuk kredensial DB, SMTP, dan `APP_URL` HTTPS (wajib HTTPS agar kamera scanner barcode berjalan di browser).
-3. Impor [`database/schema.sql`](database/schema.sql), lalu jalankan `php cron/verify_production_db.php --apply-missing` untuk memastikan keutuhan 30 tabel & 47 index.
+3. Impor [`database/schema.sql`](database/schema.sql), lalu jalankan `php cron/verify_production_db.php --apply-missing` untuk memastikan keutuhan 30 tabel & 48 index.
 4. Aktifkan penjadwalan `cron/backup_db.sh` / `.ps1` dan `cron/low_stock_alert.sh` / `.ps1`, serta ikuti checklist di [`docs/UAT_DAN_OPERASIONAL_CHECKLIST.md`](docs/UAT_DAN_OPERASIONAL_CHECKLIST.md).
 5. Atur izin direktori standar Linux: folder `755`, file `644` (pastikan `.env` dan `config.local.php` tidak dapat diakses via HTTP).
 

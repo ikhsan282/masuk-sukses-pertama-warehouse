@@ -24,7 +24,7 @@ Jalankan seluruh pemeriksaan berikut dari root direktori aplikasi sebelum membuk
    Output wajib berstatus **`[PASS]`** dengan:
    - `30` tabel inti berengine **InnoDB** dan charset **utf8mb4** (termasuk `login_attempts`, `audit_logs`, dan `user_remember_tokens`).
    - Entitas PT default aktif (`MSP`, `SLN`, `PDM`) dan `4` role inti (`Super Admin`, `Admin`, `Staff Gudang`, `Viewer`).
-   - `47/47` composite & lookup indexes pada `16` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, index `audit_logs`, dan index `user_remember_tokens`).
+   - `48/48` composite & lookup indexes pada `16` tabel terverifikasi (termasuk `idx_transfers_from_comp_date_id`, `idx_transfers_to_comp_date_id`, `idx_login_attempts_lookup`, index `audit_logs`, dan index `user_remember_tokens`).
 
 3. **Verifikasi Proteksi Direktori Backup over HTTP**
    - Uji akses URL `<APP_URL>/backups/` melalui browser/curl. Server wajib mengembalikan HTTP **`403 Forbidden`**.

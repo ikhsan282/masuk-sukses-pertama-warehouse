@@ -113,6 +113,7 @@ $requiredIndexes = [
         'idx_audit_comp_created'   => ['company_id', 'created_at', 'id'],
         'idx_audit_action_created' => ['action', 'created_at', 'id'],
         'idx_audit_user_created'   => ['user_id', 'created_at', 'id'],
+        'idx_audit_created_id'     => ['created_at', 'id'],
     ],
     'user_remember_tokens' => [
         'idx_remember_user_expires' => ['user_id', 'expires_at'],

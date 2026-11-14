@@ -14,7 +14,7 @@ $per_page = grid_per_page();
 
 $where_parts = [
     'i.is_active=1',
-    "COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id={$comp_id}), 0) <= i.min_stock"
+    'COALESCE(st.total_stock, 0) <= i.min_stock',
 ];
 $params = [];
 $types  = '';
@@ -26,10 +26,30 @@ if ($search) {
     $types .= 'ss';
 }
 $where = 'WHERE ' . implode(' AND ', $where_parts);
+$stock_join = "LEFT JOIN (
+    SELECT s.item_id, SUM(s.quantity) AS total_stock
+    FROM stock s
+    WHERE s.company_id = {$comp_id}
+    GROUP BY s.item_id
+) st ON st.item_id = i.id";
 
-$cq = $db->prepare("SELECT COUNT(*) FROM items i $where");
-if ($types) $cq->bind_param($types, ...$params);
-$cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+if (!$search) {
+    $zero_is_low = (int)$db->query('SELECT COUNT(*) FROM items WHERE is_active=1 AND min_stock >= 0')->fetch_row()[0];
+    $low_adj = (int)$db->query("SELECT COALESCE(SUM(
+            CASE WHEN i.min_stock >= 0 AND st.total_stock > i.min_stock THEN -1
+                 WHEN i.min_stock < 0 AND st.total_stock <= i.min_stock THEN 1
+                 ELSE 0 END), 0)
+        FROM (
+            SELECT s.item_id, SUM(s.quantity) AS total_stock
+            FROM stock s WHERE s.company_id = {$comp_id} GROUP BY s.item_id
+        ) st
+        JOIN items i ON i.id = st.item_id AND i.is_active = 1")->fetch_row()[0];
+    $total = max(0, $zero_is_low + $low_adj);
+} else {
+    $cq = $db->prepare("SELECT COUNT(*) FROM items i {$stock_join} {$where}");
+    $cq->bind_param($types, ...$params);
+    $cq->execute(); $cq->bind_result($total); $cq->fetch(); $cq->close();
+}
 
 $pag    = paginate($total, $page, $per_page);
 $offset = $pag['offset'];
@@ -40,11 +60,12 @@ $p2[] = &$limit;
 $p2[] = &$offset;
 
 $st = $db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, u.abbreviation,
-    COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id={$comp_id}), 0) AS total_stock,
-    GREATEST(i.min_stock*2 - COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id={$comp_id}), 0), 1) AS suggested_qty
+    COALESCE(st.total_stock, 0) AS total_stock,
+    GREATEST(i.min_stock*2 - COALESCE(st.total_stock, 0), 1) AS suggested_qty
     FROM items i
     JOIN units u ON u.id=i.unit_id
-    $where
+    {$stock_join}
+    {$where}
     ORDER BY total_stock ASC, i.name ASC
     LIMIT ? OFFSET ?");
 $st->bind_param($t2, ...$p2);

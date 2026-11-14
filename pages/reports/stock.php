@@ -35,11 +35,15 @@ if (!$loc_filter && $having === '') {
     $pag = paginate($total, $page, $per_page); $offset = $pag['offset']; $limit = $pag['per_page'];
     $t2 = $types . 'ii'; $p2 = $params; $p2[] = &$limit; $p2[] = &$offset;
 
-    $st = $db->prepare("SELECT i.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price,
+    $st = $db->prepare("SELECT pg.id, i.code, i.name, i.min_stock, i.buy_price, i.sell_price,
         c.name AS cat_name, u.abbreviation,
-        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock,
-        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) * i.buy_price AS stock_value
-        FROM (SELECT i.id FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?) pg
+        pg.total_stock,
+        (pg.total_stock * i.buy_price) AS stock_value
+        FROM (
+            SELECT i.id,
+                COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock
+            FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?
+        ) pg
         JOIN items i ON i.id=pg.id
         JOIN categories c ON c.id=i.category_id JOIN units u ON u.id=i.unit_id
         ORDER BY i.code");

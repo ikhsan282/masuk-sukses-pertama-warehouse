@@ -673,6 +673,68 @@ try {
             && file_exists($root . '/cron/low_stock_alert.ps1'),
             'Portal Mobile PWA mendukung Multi-PT switcher scoped, prefers-color-scheme/darkToggle, link Profil & cron/low_stock_alert.ps1 tersedia'
         );
+
+        // Performance optimizations: lazy html5-qrcode, preconnect, SARGable audit logs + idx_audit_created_id, single-pass low_stock parity, .htaccess.production
+        $saDash = p5_http($baseUrl . '/pages/dashboard.php', null, $saCookie, false);
+        $saScan = p5_http($baseUrl . '/pages/stock-in/create.php', null, $saCookie, false);
+        $saSrch = p5_http($baseUrl . '/pages/items/search.php?q=OPL', null, $saCookie, false);
+        $saAud  = p5_http($baseUrl . '/pages/audit-logs/index.php', null, $saCookie, false);
+        $saAudCsv = p5_http($baseUrl . '/pages/audit-logs/export.php?format=csv', null, $saCookie, false);
+        $saRepIn  = p5_http($baseUrl . '/pages/reports/stock-in.php', null, $saCookie, false);
+        $saRepOut = p5_http($baseUrl . '/pages/reports/stock-out.php', null, $saCookie, false);
+        $saRepInCsv  = p5_http($baseUrl . '/pages/reports/stock-in_export.php?format=csv', null, $saCookie, false);
+        $saRepOutCsv = p5_http($baseUrl . '/pages/reports/stock-out_export.php?format=csv', null, $saCookie, false);
+        $htaccessProd = file_get_contents($root . '/.htaccess.production');
+
+        p5_assert(
+            $saDash['code'] === 200
+            && !str_contains($saDash['body'], 'html5-qrcode.min.js')
+            && str_contains($saDash['body'], 'rel="preconnect" href="https://cdn.jsdelivr.net"')
+            && $saScan['code'] === 200
+            && str_contains($saScan['body'], 'html5-qrcode.min.js'),
+            'Optimasi frontend: html5-qrcode hanya dimuat di halaman scanner & header menyertakan preconnect CDN'
+        );
+        p5_assert(
+            $saSrch['code'] === 200 && str_starts_with(trim($saSrch['body']), '[')
+            && $saAud['code'] === 200 && $saAudCsv['code'] === 200 && str_contains($saAudCsv['body'], 'Waktu')
+            && $saRepIn['code'] === 200 && $saRepOut['code'] === 200
+            && $saRepInCsv['code'] === 200 && $saRepOutCsv['code'] === 200
+            && str_contains($htaccessProd, 'mod_deflate.c') && str_contains($htaccessProd, 'mod_expires.c'),
+            'Endpoint search, audit log SARGable, laporan masuk/keluar & .htaccess.production (gzip/expires) berjalan optimal'
+        );
+
+        // Verify idx_audit_created_id & exact low-stock parity against correlated reference across all active PT
+        $idxCheck = $db->query("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'audit_logs' AND INDEX_NAME = 'idx_audit_created_id'")->fetch_row()[0];
+        $zeroIsLow = (int)$db->query('SELECT COUNT(*) FROM items WHERE is_active=1 AND min_stock >= 0')->fetch_row()[0];
+        $aggLowRes = $db->query("
+            SELECT c.id,
+                GREATEST(0, {$zeroIsLow} + COALESCE(st.low_adj, 0)) AS opt_low,
+                (SELECT COUNT(*) FROM items i WHERE i.is_active=1
+                    AND COALESCE((SELECT SUM(s2.quantity) FROM stock s2 WHERE s2.item_id=i.id AND s2.company_id=c.id), 0) <= i.min_stock) AS ref_low
+            FROM companies c
+            LEFT JOIN (
+                SELECT si.company_id,
+                    COALESCE(SUM(CASE WHEN si.min_stock >= 0 AND si.item_qty > si.min_stock THEN -1 WHEN si.min_stock < 0 AND si.item_qty <= si.min_stock THEN 1 ELSE 0 END), 0) AS low_adj
+                FROM (
+                    SELECT s.company_id, s.item_id, i.min_stock, SUM(s.quantity) AS item_qty
+                    FROM stock s JOIN items i ON i.id=s.item_id AND i.is_active=1
+                    GROUP BY s.company_id, s.item_id, i.min_stock
+                ) si
+                GROUP BY si.company_id
+            ) st ON st.company_id = c.id
+            WHERE c.is_active = 1
+        ")->fetch_all(MYSQLI_ASSOC);
+        $lowParityOk = !empty($aggLowRes);
+        foreach ($aggLowRes as $lr) {
+            if ((int)$lr['opt_low'] !== (int)$lr['ref_low']) {
+                $lowParityOk = false;
+                break;
+            }
+        }
+        p5_assert(
+            (int)$idxCheck >= 1 && $lowParityOk,
+            'Index audit_logs.idx_audit_created_id aktif & optimasi single-pass low_stock identik 100% di seluruh PT'
+        );
     }
 } finally {
     // Cleanup temporary test rows & files

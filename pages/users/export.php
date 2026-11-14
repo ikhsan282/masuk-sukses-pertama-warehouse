@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
 require_perm('users.view');
+release_session_lock();
 $db = getDB();
 grid_apply_timeout($db, 30.0);
 

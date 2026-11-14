@@ -1,3 +1,4 @@
+<?php $GLOBALS['msp_needs_scanner'] = true; ?>
 <!-- Barcode/QR Scanner Modal (reusable) -->
 <div class="modal fade" id="scannerModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">

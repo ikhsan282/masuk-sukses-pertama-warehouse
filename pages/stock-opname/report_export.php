@@ -26,6 +26,7 @@ if (!$opname) {
     redirect(APP_URL . '/pages/stock-opname/index.php');
 }
 require_company_access((int)$opname['company_id'], false);
+release_session_lock();
 
 $compLabel = '[' . ($opname['company_code'] ?? 'MSP') . '] ' . ($opname['company_name'] ?? COMPANY_NAME);
 $refLabel  = 'OPNAME-' . $id;

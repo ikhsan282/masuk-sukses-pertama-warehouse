@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
 require_perm('reports.view');
+release_session_lock();
 $db = getDB();
 grid_apply_timeout($db, 30.0);
 
@@ -28,11 +29,15 @@ if ($format === 'pdf' || $format === 'excel') {
     $p_params[] = $limit_q;
     $st = $db->prepare("SELECT so.reference_no, comp.code AS comp_code, so.transaction_date, so.recipient, so.purpose,
         l.name AS location_name, COALESCE(u.name, '-') AS user_name,
-        (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
-        (SELECT COALESCE(SUM(d.quantity),0) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
-        FROM stock_out so JOIN locations l ON l.id=so.location_id
+        COUNT(d.id) AS item_count,
+        COALESCE(SUM(d.quantity), 0) AS total_qty
+        FROM (SELECT so.id FROM stock_out so $where ORDER BY so.id DESC LIMIT ?) pg
+        JOIN stock_out so ON so.id=pg.id
+        JOIN locations l ON l.id=so.location_id
         LEFT JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
-        $where ORDER BY so.id DESC LIMIT ?");
+        LEFT JOIN stock_out_details d ON d.stock_out_id=so.id
+        GROUP BY so.id, so.reference_no, comp.code, so.transaction_date, so.recipient, so.purpose, l.name, u.name
+        ORDER BY so.id DESC");
     $st->bind_param($types . 'i', ...$p_params);
     $st->execute();
     $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -85,7 +90,13 @@ if ($format==='print') {
 
     $print_limit = EXPORT_PRINT_MAX_ROWS + 1;
     $p_params = $params; $p_params[] = $print_limit;
-    $st=$db->prepare("SELECT so.reference_no, comp.code AS comp_code, so.transaction_date, so.recipient, l.name AS location_name, (SELECT COALESCE(SUM(d.quantity),0) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty FROM stock_out so JOIN locations l ON l.id=so.location_id LEFT JOIN companies comp ON comp.id=so.company_id $where ORDER BY so.id DESC LIMIT ?");
+    $st=$db->prepare("SELECT so.reference_no, comp.code AS comp_code, so.transaction_date, so.recipient, l.name AS location_name, COALESCE(SUM(d.quantity),0) AS total_qty
+        FROM (SELECT so.id FROM stock_out so $where ORDER BY so.id DESC LIMIT ?) pg
+        JOIN stock_out so ON so.id=pg.id
+        JOIN locations l ON l.id=so.location_id LEFT JOIN companies comp ON comp.id=so.company_id
+        LEFT JOIN stock_out_details d ON d.stock_out_id=so.id
+        GROUP BY so.id, so.reference_no, comp.code, so.transaction_date, so.recipient, l.name
+        ORDER BY so.id DESC");
     $st->bind_param($types . 'i', ...$p_params);
     $st->execute();
     $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -126,11 +137,15 @@ $hit_cap = false;
 while ($exported < EXPORT_CSV_MAX_ROWS) {
     $take = min($chunk_size, EXPORT_CSV_MAX_ROWS - $exported + 1);
     $sql = "SELECT so.id, so.reference_no, comp.code AS comp_code, so.transaction_date, so.recipient, so.purpose,
-        l.name AS location_name, u.name AS user_name,
-        (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
-        (SELECT COALESCE(SUM(d.quantity),0) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
-        FROM stock_out so JOIN locations l ON l.id=so.location_id JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
-        $where AND so.id < ? ORDER BY so.id DESC LIMIT ?";
+        l.name AS location_name, COALESCE(u.name, '-') AS user_name,
+        COUNT(d.id) AS item_count,
+        COALESCE(SUM(d.quantity),0) AS total_qty
+        FROM (SELECT so.id FROM stock_out so $where AND so.id < ? ORDER BY so.id DESC LIMIT ?) pg
+        JOIN stock_out so ON so.id=pg.id
+        JOIN locations l ON l.id=so.location_id LEFT JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
+        LEFT JOIN stock_out_details d ON d.stock_out_id=so.id
+        GROUP BY so.id, so.reference_no, comp.code, so.transaction_date, so.recipient, so.purpose, l.name, u.name
+        ORDER BY so.id DESC";
     $c_params = $params;
     $c_params[] = $last_id;
     $c_params[] = $take;

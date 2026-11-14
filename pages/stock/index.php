@@ -49,11 +49,15 @@ if ($loc_filter) {
         GROUP BY i.id, i.code, i.name, i.min_stock, c.name, u.abbreviation
         ORDER BY i.code");
 } else {
-    $st=$db->prepare("SELECT i.id, i.code, i.name, i.min_stock,
+    $st=$db->prepare("SELECT pg.id, i.code, i.name, i.min_stock, i.buy_price,
         c.name AS cat_name, u.abbreviation,
-        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock,
-        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) * i.buy_price AS stock_value
-        FROM (SELECT i.id FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?) pg
+        pg.total_stock,
+        (pg.total_stock * i.buy_price) AS stock_value
+        FROM (
+            SELECT i.id,
+                COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS total_stock
+            FROM items i $where ORDER BY i.code LIMIT ? OFFSET ?
+        ) pg
         JOIN items i ON i.id=pg.id
         JOIN categories c ON c.id=i.category_id
         JOIN units u ON u.id=i.unit_id
@@ -64,17 +68,24 @@ $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC); $st->close();
 
 $locations = $db->query('SELECT id,code,name FROM locations WHERE is_active=1 ORDER BY code')->fetch_all(MYSQLI_ASSOC);
 
-// Summary stats in a single indexed pass without streaming rowsets to PHP
+// Summary stats in a single indexed pass over stock instead of correlated subqueries across all items
+$total_active_items = (int)$db->query('SELECT COUNT(*) FROM items WHERE is_active=1')->fetch_row()[0];
 $stat_row = $db->query("SELECT
-    COALESCE(SUM(qty = 0), 0) AS cnt_zero,
-    COALESCE(SUM(qty > 0 AND qty <= min_stock), 0) AS cnt_low
+    COALESCE(SUM(is_active=1 AND qty <> 0), 0) AS nonzero_cnt,
+    COALESCE(SUM(is_active=1 AND qty > 0 AND qty <= min_stock), 0) AS cnt_low,
+    COALESCE(SUM(val), 0) AS stock_val
     FROM (
-        SELECT i.min_stock, COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id IN ($comp_in)), 0) AS qty
-        FROM items i WHERE i.is_active=1
-    ) t")->fetch_assoc();
-$stat_zero = (int)($stat_row['cnt_zero'] ?? 0);
+        SELECT s.item_id, i.is_active, i.min_stock,
+               SUM(s.quantity) AS qty,
+               SUM(s.quantity) * i.buy_price AS val
+        FROM stock s
+        JOIN items i ON i.id=s.item_id
+        WHERE s.company_id IN ($comp_in)
+        GROUP BY s.item_id, i.is_active, i.min_stock, i.buy_price
+    ) st")->fetch_assoc();
+$stat_zero = max(0, $total_active_items - (int)($stat_row['nonzero_cnt'] ?? 0));
 $stat_low  = (int)($stat_row['cnt_low'] ?? 0);
-$stat_val  = $db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id IN ($comp_in)")->fetch_row()[0];
+$stat_val  = (float)($stat_row['stock_val'] ?? 0);
 
 $page_title='Cek Stok'; include __DIR__.'/../../includes/header.php';
 ?>

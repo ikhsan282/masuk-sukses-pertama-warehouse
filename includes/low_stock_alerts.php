@@ -24,10 +24,7 @@ function get_low_stock_items(?int $company_id = null): array {
         $company_id = current_company_id();
     }
     
-    $join_company = '';
-    if ($company_id) {
-        $join_company = "AND s.company_id = $company_id";
-    }
+    $where_stock = $company_id ? 'WHERE s.company_id = ' . (int)$company_id : '';
 
     $query = "
         SELECT 
@@ -37,15 +34,18 @@ function get_low_stock_items(?int $company_id = null): array {
             i.min_stock,
             u.abbreviation AS unit,
             i.buy_price,
-            COALESCE(SUM(s.quantity), 0) AS total_stock,
-            GREATEST(i.min_stock * 2 - COALESCE(SUM(s.quantity), 0), 1) AS suggested_qty,
-            COALESCE(SUM(s.quantity), 0) * i.buy_price AS stock_value
+            COALESCE(st.qty, 0) AS total_stock,
+            GREATEST(i.min_stock * 2 - COALESCE(st.qty, 0), 1) AS suggested_qty,
+            COALESCE(st.qty, 0) * i.buy_price AS stock_value
         FROM items i
         JOIN units u ON u.id = i.unit_id
-        LEFT JOIN stock s ON s.item_id = i.id $join_company
-        WHERE i.is_active = 1
-        GROUP BY i.id, i.code, i.name, i.min_stock, u.abbreviation, i.buy_price
-        HAVING total_stock <= i.min_stock
+        LEFT JOIN (
+            SELECT s.item_id, SUM(s.quantity) AS qty
+            FROM stock s
+            {$where_stock}
+            GROUP BY s.item_id
+        ) st ON st.item_id = i.id
+        WHERE i.is_active = 1 AND COALESCE(st.qty, 0) <= i.min_stock
         ORDER BY total_stock ASC, i.name ASC
     ";
     

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 
 require_perm('reports.view');
+release_session_lock();
 $db = getDB();
 grid_apply_timeout($db, 30.0);
 
@@ -27,13 +28,17 @@ if ($format === 'pdf' || $format === 'excel') {
     $p_params = $params;
     $p_params[] = $limit_q;
     $st = $db->prepare("SELECT si.reference_no, comp.code AS comp_code, si.transaction_date, s.name AS supplier_name, l.name AS location_name,
-        (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS item_count,
-        (SELECT COALESCE(SUM(d.quantity),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_qty,
-        (SELECT COALESCE(SUM(d.quantity*d.buy_price),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) AS total_value,
+        COUNT(d.id) AS item_count,
+        COALESCE(SUM(d.quantity), 0) AS total_qty,
+        COALESCE(SUM(d.quantity*d.buy_price), 0) AS total_value,
         COALESCE(u.name, '-') AS user_name
-        FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
+        FROM (SELECT si.id FROM stock_in si $where ORDER BY si.id DESC LIMIT ?) pg
+        JOIN stock_in si ON si.id=pg.id
+        JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id
         LEFT JOIN users u ON u.id=si.user_id LEFT JOIN companies comp ON comp.id=si.company_id
-        $where ORDER BY si.id DESC LIMIT ?");
+        LEFT JOIN stock_in_details d ON d.stock_in_id=si.id
+        GROUP BY si.id, si.reference_no, comp.code, si.transaction_date, s.name, l.name, u.name
+        ORDER BY si.id DESC");
     $st->bind_param($types . 'i', ...$p_params);
     $st->execute();
     $raw = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -82,7 +87,16 @@ if ($format==='print') {
     $title='Laporan Barang Masuk'; $subtitle='Cakupan: '.$cf['label'].' | Periode: '.tgl($date_from).' - '.tgl($date_to);
     $print_limit = EXPORT_PRINT_MAX_ROWS + 1;
     $p_params = $params; $p_params[] = $print_limit;
-    $st=$db->prepare("SELECT si.reference_no, comp.code comp_code, si.transaction_date, s.name supplier_name, l.name location_name, (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) item_count, (SELECT COALESCE(SUM(d.quantity),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) total_qty, (SELECT COALESCE(SUM(d.quantity*d.buy_price),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) total_value FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id LEFT JOIN companies comp ON comp.id=si.company_id $where ORDER BY si.id DESC LIMIT ?");
+    $st=$db->prepare("SELECT si.reference_no, comp.code comp_code, si.transaction_date, s.name supplier_name, l.name location_name,
+        COUNT(d.id) item_count,
+        COALESCE(SUM(d.quantity),0) total_qty,
+        COALESCE(SUM(d.quantity*d.buy_price),0) total_value
+        FROM (SELECT si.id FROM stock_in si $where ORDER BY si.id DESC LIMIT ?) pg
+        JOIN stock_in si ON si.id=pg.id
+        JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id LEFT JOIN companies comp ON comp.id=si.company_id
+        LEFT JOIN stock_in_details d ON d.stock_in_id=si.id
+        GROUP BY si.id, si.reference_no, comp.code, si.transaction_date, s.name, l.name
+        ORDER BY si.id DESC");
     $st->bind_param($types . 'i', ...$p_params);
     $st->execute();
     $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -123,12 +137,16 @@ $hit_cap = false;
 while ($exported < EXPORT_CSV_MAX_ROWS) {
     $take = min($chunk_size, EXPORT_CSV_MAX_ROWS - $exported + 1);
     $sql = "SELECT si.id, si.reference_no, comp.code comp_code, si.transaction_date, s.name supplier_name, l.name location_name,
-        (SELECT COUNT(*) FROM stock_in_details d WHERE d.stock_in_id=si.id) item_count,
-        (SELECT COALESCE(SUM(d.quantity),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) total_qty,
-        (SELECT COALESCE(SUM(d.quantity*d.buy_price),0) FROM stock_in_details d WHERE d.stock_in_id=si.id) total_value,
-        u.name user_name
-        FROM stock_in si JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id JOIN users u ON u.id=si.user_id LEFT JOIN companies comp ON comp.id=si.company_id
-        $where AND si.id < ? ORDER BY si.id DESC LIMIT ?";
+        COUNT(d.id) item_count,
+        COALESCE(SUM(d.quantity),0) total_qty,
+        COALESCE(SUM(d.quantity*d.buy_price),0) total_value,
+        COALESCE(u.name, '-') user_name
+        FROM (SELECT si.id FROM stock_in si $where AND si.id < ? ORDER BY si.id DESC LIMIT ?) pg
+        JOIN stock_in si ON si.id=pg.id
+        JOIN suppliers s ON s.id=si.supplier_id JOIN locations l ON l.id=si.location_id LEFT JOIN users u ON u.id=si.user_id LEFT JOIN companies comp ON comp.id=si.company_id
+        LEFT JOIN stock_in_details d ON d.stock_in_id=si.id
+        GROUP BY si.id, si.reference_no, comp.code, si.transaction_date, s.name, l.name, u.name
+        ORDER BY si.id DESC";
     $c_params = $params;
     $c_params[] = $last_id;
     $c_params[] = $take;

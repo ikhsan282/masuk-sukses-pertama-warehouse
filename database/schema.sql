@@ -540,7 +540,8 @@ ALTER TABLE `login_attempts`
 ALTER TABLE `audit_logs`
   ADD INDEX `idx_audit_comp_created` (`company_id`, `created_at`, `id`),
   ADD INDEX `idx_audit_action_created` (`action`, `created_at`, `id`),
-  ADD INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`);
+  ADD INDEX `idx_audit_user_created` (`user_id`, `created_at`, `id`),
+  ADD INDEX `idx_audit_created_id` (`created_at`, `id`);
 
 
 -- ============================================================================

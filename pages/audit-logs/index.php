@@ -23,8 +23,10 @@ $cf           = resolve_company_filter('company_id');
 
 // Include global events (company_id IS NULL, e.g. login/export/item master) unless filtered strictly
 $comp_in = $cf['sql_in'] ?: '0';
-$where   = ['DATE(al.created_at) BETWEEN ? AND ?', "(al.company_id IN ($comp_in) OR al.company_id IS NULL)"];
-$params  = [$date_from, $date_to];
+$df_ts   = $date_from . ' 00:00:00';
+$dt_ts   = $date_to . ' 23:59:59';
+$where   = ['al.created_at >= ?', 'al.created_at <= ?', "(al.company_id IN ($comp_in) OR al.company_id IS NULL)"];
+$params  = [$df_ts, $dt_ts];
 $types   = 'ss';
 
 $group_map = [

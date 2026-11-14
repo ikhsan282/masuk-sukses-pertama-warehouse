@@ -101,6 +101,8 @@ $roles_overview = [
   <title><?= e(APP_NAME) ?> — Sistem Manajemen Inventori &amp; Gudang</title>
   <meta name="description" content="Sistem manajemen inventori dan gudang multi-PT: pengadaan PO, mutasi real-time, transfer antar lokasi/PT, stock opname, portal gudang PWA, laporan PDF/Excel, dan audit log.">
   <link rel="manifest" href="<?= APP_URL ?>/manifest.json">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <?= theme_prepaint_script() ?>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css">

@@ -29,12 +29,14 @@ $t2=$types.'ii';$p2=$params;$p2[]=&$limit;$p2[]=&$offset;
 
 $st=$db->prepare("SELECT so.id, so.reference_no, so.transaction_date, so.recipient, so.purpose,
     l.name AS location_name, u.name AS user_name, comp.code AS comp_code,
-    (SELECT COUNT(*) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS item_count,
-    (SELECT SUM(d.quantity) FROM stock_out_details d WHERE d.stock_out_id=so.id) AS total_qty
+    COUNT(d.id) AS item_count,
+    COALESCE(SUM(d.quantity), 0) AS total_qty
     FROM (SELECT so.id FROM stock_out so $where ORDER BY so.transaction_date DESC, so.id DESC LIMIT ? OFFSET ?) pg
     JOIN stock_out so ON so.id=pg.id
     JOIN locations l ON l.id=so.location_id
     JOIN users u ON u.id=so.user_id LEFT JOIN companies comp ON comp.id=so.company_id
+    LEFT JOIN stock_out_details d ON d.stock_out_id=so.id
+    GROUP BY so.id, so.reference_no, so.transaction_date, so.recipient, so.purpose, l.name, u.name, comp.code
     ORDER BY so.transaction_date DESC, so.id DESC");
 $st->bind_param($t2,...$p2);$st->execute();
 $rows=$st->get_result()->fetch_all(MYSQLI_ASSOC);$st->close();

@@ -276,6 +276,7 @@ function export_xlsx_build(string $title, string $subtitle, array $columns, arra
 }
 
 function export_xlsx_send(string $filename, string $title, string $subtitle, array $columns, array $rows, string $sheetTitle = 'Data'): void {
+    release_session_lock();
     $bytes = export_xlsx_build($title, $subtitle, $columns, $rows, $sheetTitle);
     $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -608,6 +609,7 @@ function export_pdf_build(string $title, string $subtitle, array $columns, array
 }
 
 function export_pdf_send(string $filename, string $title, string $subtitle, array $columns, array $rows, string $orientation = 'L'): void {
+    release_session_lock();
     $bytes = export_pdf_build($title, $subtitle, $columns, $rows, $orientation);
     $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
     header('Content-Type: application/pdf');
@@ -953,6 +955,7 @@ function master_export_serve(string $entity): void {
     }
 
     require_perm($permMap[$entity]);
+    release_session_lock();
     $db = getDB();
     grid_apply_timeout($db, 30.0);
 

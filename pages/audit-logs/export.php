@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../includes/export.php';
 require_perm('users.view');
 $db = getDB();
 audit_logs_ensure_table($db);
+release_session_lock();
 grid_apply_timeout($db, 20.0);
 
 $date_from  = req_date('date_from', date('Y-m-d', strtotime('-29 days')));
@@ -20,8 +21,10 @@ $format     = strtolower(req_str('format', 'csv'));
 $cf         = resolve_company_filter('company_id');
 
 $comp_in = $cf['sql_in'] ?: '0';
-$where   = ['DATE(al.created_at) BETWEEN ? AND ?', "(al.company_id IN ($comp_in) OR al.company_id IS NULL)"];
-$params  = [$date_from, $date_to];
+$df_ts   = $date_from . ' 00:00:00';
+$dt_ts   = $date_to . ' 23:59:59';
+$where   = ['al.created_at >= ?', 'al.created_at <= ?', "(al.company_id IN ($comp_in) OR al.company_id IS NULL)"];
+$params  = [$df_ts, $dt_ts];
 $types   = 'ss';
 
 $group_map = [
@@ -112,7 +115,7 @@ if ($format === 'pdf' || $format === 'excel') {
 if ($format === 'print') {
     ?>
     <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>Cetak Audit Log</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>body{font-size:12px}@media print{.no-print{display:none}}</style></head><body class="p-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div><h5 class="mb-0">Audit Log Aktivitas Sistem</h5><small class="text-muted"><?= e($subtitle) ?></small></div>

@@ -16,6 +16,7 @@ if (!can('items.view') && !can('reports.view') && !can('stock_opname.count') && 
     exit;
 }
 
+release_session_lock();
 $db = getDB();
 grid_apply_timeout($db, 5.0);
 $q  = grid_search_term('q', 80);

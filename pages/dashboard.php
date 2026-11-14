@@ -13,21 +13,29 @@ $cid         = current_company_id();
 $active_comp = current_company();
 $user_comps  = user_companies();
 
-$total_items     = (int)$db->query("SELECT COUNT(*) FROM items WHERE is_active=1")->fetch_row()[0];
-$total_suppliers = (int)$db->query('SELECT COUNT(*) FROM suppliers WHERE is_active=1')->fetch_row()[0];
-$total_locations = (int)$db->query('SELECT COUNT(*) FROM locations WHERE is_active=1')->fetch_row()[0];
+[$total_items, $zero_is_low_cnt] = array_map('intval', $db->query('SELECT COUNT(*), COALESCE(SUM(min_stock >= 0), 0) FROM items WHERE is_active=1')->fetch_row());
+[$total_suppliers, $total_locations] = array_map('intval', $db->query('SELECT (SELECT COUNT(*) FROM suppliers WHERE is_active=1), (SELECT COUNT(*) FROM locations WHERE is_active=1)')->fetch_row());
 
 // Inventory value (uses idx_stock_comp_item_qty)
 $inv_value = (float)$db->query("SELECT COALESCE(SUM(s.quantity * i.buy_price),0) FROM stock s JOIN items i ON i.id=s.item_id WHERE s.company_id=$cid")->fetch_row()[0];
 
-// Low stock count (shared 60s session cache + correlated covering-index scalar subquery)
+// Low stock count (shared 60s session cache + single indexed pass over stock)
 $cached_low = $_SESSION['low_stock_cache'][$cid] ?? null;
 if (is_array($cached_low) && (time() - (int)($cached_low['ts'] ?? 0)) < 60) {
     $low_stock_count = (int)$cached_low['count'];
 } else {
-    $low_stock_count = (int)$db->query("SELECT COUNT(*) FROM items i
-        WHERE i.is_active=1
-        AND COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id=i.id AND s.company_id=$cid), 0) <= i.min_stock")->fetch_row()[0];
+    $low_adj = (int)$db->query("SELECT COALESCE(SUM(
+            CASE WHEN min_stock >= 0 AND item_qty > min_stock THEN -1
+                 WHEN min_stock < 0 AND item_qty <= min_stock THEN 1
+                 ELSE 0 END), 0)
+        FROM (
+            SELECT i.min_stock, SUM(s.quantity) AS item_qty
+            FROM stock s
+            JOIN items i ON i.id = s.item_id AND i.is_active = 1
+            WHERE s.company_id = $cid
+            GROUP BY s.item_id, i.min_stock
+        ) si")->fetch_row()[0];
+    $low_stock_count = max(0, $zero_is_low_cnt + $low_adj);
     $_SESSION['low_stock_cache'][$cid] = ['count' => $low_stock_count, 'ts' => time()];
 }
 
@@ -57,27 +65,17 @@ if (count($low_stock) < 10) {
     $low_stock = array_merge($low_stock, $more_low);
 }
 
-// Today transactions & quantities
-$today = date('Y-m-d');
-$today_in_row = $db->query("SELECT COUNT(DISTINCT si.id) AS cnt, COALESCE(SUM(d.quantity), 0) AS qty
-    FROM stock_in si
-    LEFT JOIN stock_in_details d ON d.stock_in_id = si.id
-    WHERE si.transaction_date='{$today}' AND si.company_id=$cid")->fetch_assoc();
-$today_in     = (int)($today_in_row['cnt'] ?? 0);
-$today_in_qty = (int)($today_in_row['qty'] ?? 0);
-
-$today_out_row = $db->query("SELECT COUNT(DISTINCT so.id) AS cnt, COALESCE(SUM(d.quantity), 0) AS qty
-    FROM stock_out so
-    LEFT JOIN stock_out_details d ON d.stock_out_id = so.id
-    WHERE so.transaction_date='{$today}' AND so.company_id=$cid")->fetch_assoc();
-$today_out     = (int)($today_out_row['cnt'] ?? 0);
-$today_out_qty = (int)($today_out_row['qty'] ?? 0);
-
-// Pending operational workflow tasks for active PT
-$pending_po_approval = (int)$db->query("SELECT COUNT(*) FROM purchase_orders WHERE company_id=$cid AND approval_status='pending'")->fetch_row()[0];
-$pending_po_receive  = (int)$db->query("SELECT COUNT(*) FROM purchase_orders WHERE company_id=$cid AND approval_status='approved' AND status IN ('pending','partial')")->fetch_row()[0];
-$pending_adj_draft   = (int)$db->query("SELECT COUNT(*) FROM stock_adjustments WHERE company_id=$cid AND status='draft'")->fetch_row()[0];
-$pending_opname      = (int)$db->query("SELECT COUNT(*) FROM stock_opname WHERE company_id=$cid AND status='draft'")->fetch_row()[0];
+// Pending operational workflow tasks for active PT (combined index queries)
+$po_row = $db->query("SELECT
+    COALESCE(SUM(approval_status='pending'), 0) AS pend_appr,
+    COALESCE(SUM(approval_status='approved' AND status IN ('pending','partial')), 0) AS pend_recv
+    FROM purchase_orders
+    WHERE company_id=$cid AND (approval_status='pending' OR (approval_status='approved' AND status IN ('pending','partial')))")->fetch_assoc();
+$pending_po_approval = (int)($po_row['pend_appr'] ?? 0);
+$pending_po_receive  = (int)($po_row['pend_recv'] ?? 0);
+[$pending_adj_draft, $pending_opname] = array_map('intval', $db->query("SELECT
+    (SELECT COUNT(*) FROM stock_adjustments WHERE company_id=$cid AND status='draft'),
+    (SELECT COUNT(*) FROM stock_opname WHERE company_id=$cid AND status='draft')")->fetch_row());
 $total_pending_tasks = $pending_po_approval + $pending_po_receive + $pending_adj_draft + $pending_opname;
 
 // Recent mutations (with location & reference)
@@ -90,7 +88,8 @@ $recent = $db->query("SELECT m.created_at, m.type, m.quantity, i.id AS item_id, 
     WHERE m.company_id=$cid
     ORDER BY m.id DESC LIMIT 8")->fetch_all(MYSQLI_ASSOC);
 
-// Chart data: last 30 days (supports client toggle 7/30 days and docs/qty)
+// Chart data: last 30 days (supports client toggle 7/30 days, docs/qty, and today KPI reuse)
+$today = date('Y-m-d');
 $start_30 = date('Y-m-d', strtotime('-29 days'));
 $in_cnt_map = [];
 $in_qty_map = [];
@@ -115,6 +114,11 @@ while ($r = $rs_out->fetch_assoc()) {
     $out_cnt_map[$r['transaction_date']] = (int)$r['cnt'];
     $out_qty_map[$r['transaction_date']] = (int)$r['qty'];
 }
+
+$today_in      = $in_cnt_map[$today] ?? 0;
+$today_in_qty  = $in_qty_map[$today] ?? 0;
+$today_out     = $out_cnt_map[$today] ?? 0;
+$today_out_qty = $out_qty_map[$today] ?? 0;
 
 $days_30    = [];
 $in_cnt_30  = [];
@@ -142,7 +146,7 @@ $top_items = $db->query("SELECT i.name, (st.qty * i.buy_price) AS value
     WHERE i.is_active=1
     ORDER BY value DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
 
-// Multi-PT summary table when user has access to > 1 company
+// Multi-PT summary table when user has access to > 1 company (single pass over stock)
 $multi_pt_summary = [];
 if (count($user_comps) > 1) {
     $comp_ids_sql = implode(',', array_map(static fn($c) => (int)$c['id'], $user_comps));
@@ -151,20 +155,27 @@ if (count($user_comps) > 1) {
             COALESCE(st.sku_count, 0) AS sku_count,
             COALESCE(st.total_qty, 0) AS total_qty,
             COALESCE(st.inv_value, 0) AS inv_value,
-            (SELECT COUNT(*) FROM items i
-             WHERE i.is_active = 1
-               AND COALESCE((SELECT SUM(s2.quantity) FROM stock s2 WHERE s2.item_id = i.id AND s2.company_id = c.id), 0) <= i.min_stock
-            ) AS low_stock_count
+            GREATEST(0, {$zero_is_low_cnt} + COALESCE(st.low_adj, 0)) AS low_stock_count
         FROM companies c
         LEFT JOIN (
-            SELECT s.company_id,
-                   COUNT(DISTINCT CASE WHEN s.quantity > 0 THEN s.item_id END) AS sku_count,
-                   SUM(s.quantity) AS total_qty,
-                   SUM(s.quantity * i.buy_price) AS inv_value
-            FROM stock s
-            JOIN items i ON i.id = s.item_id AND i.is_active = 1
-            WHERE s.company_id IN ($comp_ids_sql)
-            GROUP BY s.company_id
+            SELECT si.company_id,
+                   COALESCE(SUM(si.item_qty > 0), 0) AS sku_count,
+                   COALESCE(SUM(si.item_qty), 0) AS total_qty,
+                   COALESCE(SUM(si.item_val), 0) AS inv_value,
+                   COALESCE(SUM(CASE
+                       WHEN si.min_stock >= 0 AND si.item_qty > si.min_stock THEN -1
+                       WHEN si.min_stock < 0 AND si.item_qty <= si.min_stock THEN 1
+                       ELSE 0 END), 0) AS low_adj
+            FROM (
+                SELECT s.company_id, s.item_id, i.min_stock,
+                       SUM(s.quantity) AS item_qty,
+                       SUM(s.quantity) * i.buy_price AS item_val
+                FROM stock s
+                JOIN items i ON i.id = s.item_id AND i.is_active = 1
+                WHERE s.company_id IN ($comp_ids_sql)
+                GROUP BY s.company_id, s.item_id, i.min_stock, i.buy_price
+            ) si
+            GROUP BY si.company_id
         ) st ON st.company_id = c.id
         WHERE c.id IN ($comp_ids_sql) AND c.is_active = 1
         ORDER BY c.is_holding DESC, c.id ASC

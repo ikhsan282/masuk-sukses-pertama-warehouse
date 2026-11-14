@@ -7,6 +7,7 @@ $mode   = req_str('mode', 'stock') === 'alerts' ? 'alerts' : 'stock';
 $format = strtolower(req_str('format', 'csv'));
 
 require_perm($mode === 'alerts' ? 'stock.alerts' : 'stock.view');
+release_session_lock();
 $db = getDB();
 grid_apply_timeout($db, 30.0);
 
@@ -18,7 +19,7 @@ if ($mode === 'alerts') {
     $comp_label = '[' . (current_company()['code'] ?? 'MSP') . '] ' . (current_company()['name'] ?? COMPANY_NAME);
     $where_parts = [
         'i.is_active = 1',
-        "COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id = i.id AND s.company_id = {$cid}), 0) <= i.min_stock",
+        'COALESCE(st.total_stock, 0) <= i.min_stock',
     ];
     $params = [];
     $types  = '';
@@ -46,9 +47,15 @@ if ($mode === 'alerts') {
         ['label' => 'Estimasi Nilai', 'type' => 'currency', 'align' => 'R', 'pdf_width' => 120, 'xlsx_width' => 18],
     ];
     $select_sql = "SELECT i.id, i.code, i.name, u.abbreviation, i.min_stock, i.buy_price,
-        COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id = i.id AND s.company_id = {$cid}), 0) AS total_stock,
-        GREATEST(i.min_stock * 2 - COALESCE((SELECT SUM(s.quantity) FROM stock s WHERE s.item_id = i.id AND s.company_id = {$cid}), 0), 1) AS suggested_qty
-        FROM items i JOIN units u ON u.id = i.unit_id $where ORDER BY total_stock ASC, i.name ASC LIMIT ?";
+        COALESCE(st.total_stock, 0) AS total_stock,
+        GREATEST(i.min_stock * 2 - COALESCE(st.total_stock, 0), 1) AS suggested_qty
+        FROM items i
+        JOIN units u ON u.id = i.unit_id
+        LEFT JOIN (
+            SELECT s.item_id, SUM(s.quantity) AS total_stock
+            FROM stock s WHERE s.company_id = {$cid} GROUP BY s.item_id
+        ) st ON st.item_id = i.id
+        $where ORDER BY total_stock ASC, i.name ASC LIMIT ?";
 } else {
     $cf         = resolve_company_filter('company_id');
     $comp_in    = $cf['sql_in'];

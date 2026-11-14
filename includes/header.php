@@ -27,6 +27,8 @@ if ($current_user && can('stock.alerts')) {
   <title><?= htmlspecialchars($page_title) ?> — <?= APP_NAME ?></title>
   <meta name="theme-color" content="#198754">
   <link rel="manifest" href="<?= APP_URL ?>/manifest.json">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <script>
   (function(){try{var t=localStorage.getItem('mw_theme');if(!t)t=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-bs-theme',t);}catch(e){}})();
   </script>
