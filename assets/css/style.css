@@ -145,6 +145,145 @@ html[data-bs-theme=dark] .table-hover tbody tr:hover { background: rgba(255,255,
 
 /* ── Tables ─────────────────────────────────────────────── */
 .table-card { border-radius: .75rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
+.grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .4rem;
+  padding: .625rem 1rem !important;
+  border-bottom: 1px solid var(--border-color);
+}
+.grid-filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  flex: 1 1 0%;
+  min-width: 0;
+  margin: 0;
+}
+.grid-filter-form .form-control-sm,
+.grid-filter-form .form-select-sm {
+  width: auto;
+  flex: 0 1 auto;
+  height: 31px;
+  min-height: 31px;
+}
+.grid-filter-form .grid-search-group {
+  width: auto;
+  min-width: 140px;
+  max-width: 235px;
+  flex: 1 1 165px;
+}
+.grid-filter-form .grid-search-group .form-control {
+  width: 1%;
+  flex: 1 1 auto;
+  height: 31px;
+  min-height: 31px;
+}
+.grid-filter-form .grid-search-group .input-group-text {
+  height: 31px;
+  padding: .25rem .55rem;
+}
+.grid-filter-form .grid-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  flex: 0 0 auto;
+}
+.grid-filter-form .grid-date-range .form-control {
+  width: 124px;
+}
+.grid-filter-form .grid-select-pt { width: auto; min-width: 135px; max-width: 195px; flex: 1 1 155px; }
+.grid-filter-form .grid-select-md { width: auto; min-width: 120px; max-width: 170px; flex: 1 1 135px; }
+.grid-filter-form .grid-select-sm { width: auto; min-width: 105px; max-width: 140px; flex: 1 1 115px; }
+.grid-filter-form .grid-filter-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  flex: 0 0 auto;
+}
+.grid-filter-form .btn-sm,
+.grid-toolbar-actions .btn-sm {
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+}
+.grid-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+/* Normalize TomSelect width/height inside grid filter bars while keeping Bootstrap .form-select styling */
+.grid-filter-form .ts-wrapper {
+  width: auto !important;
+  min-width: 130px;
+  max-width: 185px;
+  flex: 1 1 150px;
+  height: 31px !important;
+  min-height: 31px !important;
+  padding: 0 2rem 0 .5rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+.grid-filter-form .ts-wrapper .ts-control {
+  min-height: 29px !important;
+  height: 29px !important;
+  width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: .875rem !important;
+  line-height: 1.5 !important;
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+.grid-filter-form .ts-wrapper .ts-control > .item,
+.grid-filter-form .ts-wrapper .ts-control > input {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.5 !important;
+}
+.grid-filter-form .ts-wrapper.has-items .ts-control > .item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-bs-theme=dark] .grid-toolbar .input-group-text {
+  background-color: var(--surface-muted) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-muted) !important;
+}
+html[data-bs-theme=dark] .grid-filter-form .ts-wrapper.form-select {
+  background-color: var(--bs-body-bg) !important;
+  border-color: var(--bs-border-color) !important;
+  color: var(--text-primary) !important;
+}
+@media (max-width: 575.98px) {
+  .grid-filter-form {
+    flex: 1 1 100%;
+  }
+  .grid-filter-form .grid-search-group,
+  .grid-filter-form .grid-select-pt,
+  .grid-filter-form .grid-select-md,
+  .grid-filter-form .grid-select-sm,
+  .grid-filter-form .ts-wrapper {
+    width: 100% !important;
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+  .grid-filter-form .grid-date-range { width: 100%; }
+  .grid-filter-form .grid-date-range .form-control { width: 1%; flex: 1 1 0; min-width: 0; }
+  .grid-toolbar-actions { margin-left: 0; }
+}
 .grid-footer { border-top: 1px solid var(--border-color); }
 .grid-footer .form-select-sm,
 .grid-footer .form-control-sm { min-height: 28px; font-size: .78rem; }

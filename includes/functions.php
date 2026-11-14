@@ -295,6 +295,37 @@ function grid_footer_html(array $p, string $entity_label = 'data', array $query_
     return $html;
 }
 
+// Standardized search box, date range & action controls for grid filter toolbars
+function grid_filter_search_html(string $value, string $placeholder = 'Cari...', string $name = 'q'): string {
+    $val = htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    $ph  = htmlspecialchars($placeholder, ENT_QUOTES, 'UTF-8');
+    $nm  = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+    return '<div class="input-group input-group-sm grid-search-group">'
+         . '<span class="input-group-text bg-transparent"><i class="bi bi-search text-muted"></i></span>'
+         . '<input type="text" name="' . $nm . '" class="form-control" placeholder="' . $ph . '" value="' . $val . '" aria-label="' . $ph . '">'
+         . '</div>';
+}
+
+function grid_filter_date_range_html(string $from_name, string $from_val, string $to_name, string $to_val, bool $required = false): string {
+    $req = $required ? ' required' : '';
+    return '<div class="grid-date-range">'
+         . '<input type="date" name="' . htmlspecialchars($from_name, ENT_QUOTES, 'UTF-8') . '" class="form-control form-control-sm" value="' . htmlspecialchars($from_val, ENT_QUOTES, 'UTF-8') . '" title="Dari tanggal" aria-label="Dari tanggal"' . $req . '>'
+         . '<span class="text-muted small">&ndash;</span>'
+         . '<input type="date" name="' . htmlspecialchars($to_name, ENT_QUOTES, 'UTF-8') . '" class="form-control form-control-sm" value="' . htmlspecialchars($to_val, ENT_QUOTES, 'UTF-8') . '" title="Sampai tanggal" aria-label="Sampai tanggal"' . $req . '>'
+         . '</div>';
+}
+
+function grid_filter_actions_html(int $per_page, bool $show_reset = false, string $submit_label = 'Filter', string $submit_icon = 'bi-funnel'): string {
+    $html  = '<input type="hidden" name="per_page" value="' . (int)$per_page . '">';
+    $html .= '<div class="grid-filter-actions">';
+    $html .= '<button type="submit" class="btn btn-sm btn-primary text-nowrap"><i class="bi ' . htmlspecialchars($submit_icon, ENT_QUOTES, 'UTF-8') . ' me-1"></i>' . htmlspecialchars($submit_label, ENT_QUOTES, 'UTF-8') . '</button>';
+    if ($show_reset) {
+        $html .= '<a href="?per_page=' . (int)$per_page . '" class="btn btn-sm btn-outline-secondary text-nowrap" title="Reset filter"><i class="bi bi-arrow-counterclockwise me-1"></i>Reset</a>';
+    }
+    $html .= '</div>';
+    return $html;
+}
+
 // Guard CSV export cells against Excel/Calc formula injection (CWE-1236)
 function csv_safe_cell($value): string {
     $str = (string)$value;

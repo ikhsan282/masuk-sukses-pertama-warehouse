@@ -49,13 +49,11 @@ $page_title='Retur Supplier'; include __DIR__.'/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
-      <input type="text" name="q" class="form-control form-control-sm" style="max-width:200px" placeholder="No. referensi..." value="<?=htmlspecialchars($search)?>">
-      <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
-      <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <?php if($search||$date_from||$date_to):?><a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a><?php endif;?>
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
+      <?= grid_filter_search_html($search, 'Cari no. referensi...') ?>
+      <?= grid_filter_date_range_html('date_from', $date_from, 'date_to', $date_to) ?>
+      <?= grid_filter_actions_html($pag['per_page'], (bool)($search || $date_from || $date_to)) ?>
     </form>
   </div>
   <div class="table-responsive">

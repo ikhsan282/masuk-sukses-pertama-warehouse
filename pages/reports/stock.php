@@ -84,28 +84,27 @@ $page_title='Laporan Stok'; include __DIR__.'/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
       <?= company_filter_select_html('company_id', $cf['param_value']) ?>
-      <select name="category_id" class="form-select form-select-sm" style="max-width:180px">
+      <select name="category_id" class="form-select form-select-sm grid-select-md" aria-label="Filter Kategori">
         <option value="">Semua Kategori</option>
         <?php foreach($categories as $c): ?>
         <option value="<?=$c['id']?>" <?=$cat_filter==$c['id']?'selected':''?>><?=htmlspecialchars($c['name'])?></option>
         <?php endforeach; ?>
       </select>
-      <select name="location_id" class="form-select form-select-sm" style="max-width:180px">
+      <select name="location_id" class="form-select form-select-sm grid-select-md" aria-label="Filter Lokasi">
         <option value="">Semua Lokasi</option>
         <?php foreach($locations as $l): ?>
         <option value="<?=$l['id']?>" <?=$loc_filter==$l['id']?'selected':''?>><?=htmlspecialchars($l['code'])?></option>
         <?php endforeach; ?>
       </select>
-      <select name="show" class="form-select form-select-sm" style="max-width:150px">
+      <select name="show" class="form-select form-select-sm grid-select-sm" aria-label="Filter Status Stok">
         <option value="">Semua Stok</option>
         <option value="low"  <?=$show==='low'?'selected':''?>>Stok Menipis</option>
         <option value="zero" <?=$show==='zero'?'selected':''?>>Stok Habis</option>
       </select>
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a>
+      <?= grid_filter_actions_html($pag['per_page'], (bool)($cat_filter || $loc_filter || $show || isset($_GET['company_id']))) ?>
     </form>
   </div>
   <div class="table-responsive">

@@ -62,23 +62,23 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2 d-flex flex-wrap justify-content-between gap-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
-      <input type="text" name="q" class="form-control form-control-sm" style="max-width:240px"
-        placeholder="Cari kode / nama..." value="<?= htmlspecialchars($search) ?>">
-      <select name="category_id" class="form-select form-select-sm" style="max-width:180px">
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
+      <?= grid_filter_search_html($search, 'Cari kode / nama barang...') ?>
+      <select name="category_id" class="form-select form-select-sm grid-select-md" aria-label="Filter Kategori">
         <option value="">Semua Kategori</option>
         <?php foreach ($categories as $c): ?>
         <option value="<?= $c['id'] ?>" <?= $cat_filter==$c['id']?'selected':'' ?>><?= htmlspecialchars($c['name']) ?></option>
         <?php endforeach; ?>
       </select>
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <?php if ($search||$cat_filter): ?><a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i> Reset</a><?php endif; ?>
+      <?= grid_filter_actions_html($pag['per_page'], (bool)($search || $cat_filter)) ?>
     </form>
     <?php if (can('items.labels')): ?>
-    <form id="labelForm" method="GET" action="<?= APP_URL ?>/pages/items/labels.php">
-      <button class="btn btn-sm btn-outline-dark"><i class="bi bi-upc me-1"></i>Cetak Label Terpilih</button>
-    </form>
+    <div class="grid-toolbar-actions">
+      <form id="labelForm" method="GET" action="<?= APP_URL ?>/pages/items/labels.php" class="m-0">
+        <button class="btn btn-sm btn-outline-secondary text-nowrap"><i class="bi bi-upc me-1"></i>Cetak Label Terpilih</button>
+      </form>
+    </div>
     <?php endif; ?>
   </div>
   <div class="table-responsive">
@@ -111,7 +111,7 @@ include __DIR__ . '/../../includes/header.php';
           </td>
           <td class="text-end small"><?= idr((float)$r['buy_price']) ?></td>
           <td class="text-end small"><?= idr((float)$r['sell_price']) ?></td>
-          <td class="text-center">
+          <td class="text-center text-nowrap">
             <a href="<?= APP_URL ?>/pages/items/view.php?id=<?= $r['id'] ?>" class="btn btn-action btn-outline-info" title="Detail"><i class="bi bi-eye"></i></a>
             <?php if (can('items.edit')): ?>
             <a href="<?= APP_URL ?>/pages/items/edit.php?id=<?= $r['id'] ?>" class="btn btn-action btn-outline-primary" title="Edit"><i class="bi bi-pencil"></i></a>

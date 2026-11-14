@@ -141,13 +141,11 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
       <?= company_filter_select_html('company_id', $cf['param_value']) ?>
-      <input type="date" name="start_date" value="<?=e($start_date)?>" class="form-control form-control-sm" style="max-width:160px" required>
-      <span class="align-self-center">s/d</span>
-      <input type="date" name="end_date" value="<?=e($end_date)?>" class="form-control form-control-sm" style="max-width:160px" required>
-      <select name="supplier_id" class="form-select form-select-sm" style="max-width:220px">
+      <?= grid_filter_date_range_html('start_date', $start_date, 'end_date', $end_date, true) ?>
+      <select name="supplier_id" class="form-select form-select-sm ts-select" aria-label="Filter Supplier">
         <option value="">Semua Supplier</option>
         <?php foreach($suppliers as $sup): ?>
         <option value="<?=$sup['id']?>" <?=$supplier_filter==$sup['id']?'selected':''?>>
@@ -155,8 +153,7 @@ include __DIR__ . '/../../includes/header.php';
         </option>
         <?php endforeach; ?>
       </select>
-      <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Tampilkan</button>
-      <a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a>
+      <?= grid_filter_actions_html($pag['per_page'], true) ?>
     </form>
   </div>
   <div class="table-responsive">

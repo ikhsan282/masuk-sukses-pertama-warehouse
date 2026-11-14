@@ -67,18 +67,17 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
       <?= company_filter_select_html('company_id', $cf['param_value']) ?>
-      <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
-      <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
-      <select name="item_id" class="form-select form-select-sm ts-select" data-remote-items="1" style="max-width:200px">
+      <?= grid_filter_date_range_html('date_from', $date_from, 'date_to', $date_to) ?>
+      <select name="item_id" class="form-select form-select-sm ts-select" data-remote-items="1" aria-label="Filter Barang">
         <option value="">Semua Barang</option>
         <?php foreach($items_list as $it): ?>
         <option value="<?=$it['id']?>" <?=$item_filter==$it['id']?'selected':''?>><?=htmlspecialchars($it['name'])?></option>
         <?php endforeach; ?>
       </select>
-      <select name="type" class="form-select form-select-sm" style="max-width:150px">
+      <select name="type" class="form-select form-select-sm grid-select-sm" aria-label="Filter Tipe">
         <option value="">Semua Tipe</option>
         <option value="in" <?=$type_filter=='in'?'selected':''?>>Masuk</option>
         <option value="out" <?=$type_filter=='out'?'selected':''?>>Keluar</option>
@@ -86,8 +85,7 @@ $page_title='Laporan Mutasi Barang'; include __DIR__.'/../../includes/header.php
         <option value="transfer_out" <?=$type_filter=='transfer_out'?'selected':''?>>Transfer Keluar</option>
         <option value="adjustment" <?=$type_filter=='adjustment'?'selected':''?>>Penyesuaian</option>
       </select>
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a>
+      <?= grid_filter_actions_html($pag['per_page'], true) ?>
     </form>
   </div>
   <div class="table-responsive">

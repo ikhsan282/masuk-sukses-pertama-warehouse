@@ -67,19 +67,17 @@ $page_title='Laporan Barang Keluar'; include __DIR__.'/../../includes/header.php
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
       <?= company_filter_select_html('company_id', $cf['param_value']) ?>
-      <input type="date" name="date_from" class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_from)?>">
-      <input type="date" name="date_to"   class="form-control form-control-sm" style="max-width:150px" value="<?=htmlspecialchars($date_to)?>">
-      <select name="location_id" class="form-select form-select-sm ts-select" style="max-width:180px">
+      <?= grid_filter_date_range_html('date_from', $date_from, 'date_to', $date_to) ?>
+      <select name="location_id" class="form-select form-select-sm ts-select" aria-label="Filter Lokasi">
         <option value="">Semua Lokasi</option>
         <?php foreach($locations as $l): ?>
         <option value="<?=$l['id']?>" <?=$loc_filter==$l['id']?'selected':''?>><?=htmlspecialchars($l['code'])?></option>
         <?php endforeach; ?>
       </select>
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
-      <a href="?" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a>
+      <?= grid_filter_actions_html($pag['per_page'], true) ?>
     </form>
   </div>
   <div class="table-responsive">

@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 <script src="<?= APP_URL ?>/assets/vendor/html5-qrcode/html5-qrcode.min.js"></script>
-<script src="<?= APP_URL ?>/assets/js/app.js"></script>
+<script src="<?= APP_URL ?>/assets/js/app.js?v=<?= @filemtime(__DIR__ . '/../assets/js/app.js') ?: '1' ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.ts-select').forEach(function(el) {

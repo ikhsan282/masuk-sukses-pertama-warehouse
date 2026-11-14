@@ -153,12 +153,12 @@ function company_filter_select_html(string $name = 'company_id', string $selecte
     $companies = user_companies();
     if (count($companies) <= 1) return '';
     if ($selected === '') $selected = (string)current_company_id();
-    $html = '<select name="' . htmlspecialchars($name) . '" class="form-select form-select-sm" style="max-width:230px">';
-    $html .= '<option value="all"' . ($selected === 'all' ? ' selected' : '') . '>🏢 Semua PT (Konsolidasi)</option>';
+    $html = '<select name="' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '" class="form-select form-select-sm grid-select-pt" aria-label="Filter Perusahaan (PT)">';
+    $html .= '<option value="all"' . ($selected === 'all' ? ' selected' : '') . '>Semua PT (Konsolidasi)</option>';
     foreach ($companies as $c) {
         $sel = ((string)$c['id'] === (string)$selected) ? ' selected' : '';
         $html .= '<option value="' . (int)$c['id'] . '"' . $sel . '>'
-               . htmlspecialchars($c['code'] . ' — ' . $c['name']) . '</option>';
+               . htmlspecialchars($c['code'] . ' — ' . $c['name'], ENT_QUOTES, 'UTF-8') . '</option>';
     }
     $html .= '</select>';
     return $html;

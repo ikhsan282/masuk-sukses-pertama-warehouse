@@ -52,15 +52,14 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="card table-card">
-  <div class="card-header bg-white">
-    <form method="get" class="d-flex gap-2">
-      <select name="status" class="form-select form-select-sm" style="max-width:180px">
+  <div class="card-header bg-white grid-toolbar">
+    <form method="get" class="grid-filter-form">
+      <select name="status" class="form-select form-select-sm grid-select-md" aria-label="Filter Status">
         <option value="">Semua status</option>
         <option value="draft" <?= $status === 'draft' ? 'selected' : '' ?>>Draft</option>
         <option value="finalized" <?= $status === 'finalized' ? 'selected' : '' ?>>Finalized</option>
       </select>
-      <input type="hidden" name="per_page" value="<?= (int)$pag['per_page'] ?>">
-      <button class="btn btn-sm btn-outline-secondary">Filter</button>
+      <?= grid_filter_actions_html($pag['per_page'], (bool)$status) ?>
     </form>
   </div>
   <div class="table-responsive">

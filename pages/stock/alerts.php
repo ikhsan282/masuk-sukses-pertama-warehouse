@@ -67,13 +67,10 @@ include __DIR__ . '/../../includes/header.php';
   <?php endif; ?>
 </div>
 <div class="card table-card">
-  <div class="card-header bg-white py-2">
-    <form class="d-flex flex-wrap gap-2" method="GET">
-      <input type="text" name="q" class="form-control form-control-sm" style="max-width:260px"
-        placeholder="Cari kode / nama barang..." value="<?= htmlspecialchars($search) ?>">
-      <input type="hidden" name="per_page" value="<?= (int)$pag['per_page'] ?>">
-      <button class="btn btn-sm btn-outline-secondary">Cari</button>
-      <?php if ($search): ?><a href="?per_page=<?= (int)$pag['per_page'] ?>" class="btn btn-sm btn-outline-danger"><i class="bi bi-x"></i></a><?php endif; ?>
+  <div class="card-header bg-white grid-toolbar">
+    <form class="grid-filter-form" method="GET">
+      <?= grid_filter_search_html($search, 'Cari kode / nama barang...') ?>
+      <?= grid_filter_actions_html($pag['per_page'], (bool)$search, 'Cari', 'bi-search') ?>
     </form>
   </div>
   <div class="table-responsive">
